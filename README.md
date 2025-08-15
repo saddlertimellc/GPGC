@@ -54,7 +54,16 @@ GPGC is a distributed greenhouse monitoring & control system. Edge devices (Luck
 ---
 
 ## 5) Poller Usage
-Run the backend poller from the repository root to continuously read sensors:
+Set up the backend environment and install dependencies:
+
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Then run the backend poller from the repository root to continuously read sensors:
 
 ```bash
 python -m backend.poller --interval 30
