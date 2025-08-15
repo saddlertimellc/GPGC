@@ -4,8 +4,9 @@ from pymodbus.client import ModbusSerialClient, ModbusTcpClient
 HOST = os.getenv("GW_CH4_HOST", "192.168.1.204")
 PORT = int(os.getenv("GW_PORT", "4196"))
 SLAVE = int(os.getenv("GW_CH4_SLAVES", "1"))
-REG_TEMP = int(os.getenv("REG_TEMP", "0x0001"), 16)
-REG_RH   = int(os.getenv("REG_RH",   "0x0002"), 16)
+# Datasheet: humidity @ 0x0001, temperature @ 0x0002
+REG_RH   = int(os.getenv("REG_RH",   "0x0001"), 16)
+REG_TEMP = int(os.getenv("REG_TEMP", "0x0002"), 16)
 
 def read_one(client, unit, addr):
     r = client.read_input_registers(addr, 1, unit=unit)
@@ -32,10 +33,12 @@ def main():
         sys.exit(2)
 
     try:
-        t_raw = read_one(client, SLAVE, REG_TEMP)  # °C × 10
-        h_raw = read_one(client, SLAVE, REG_RH)    # %RH × 10
-        print(f"Temperature: {t_raw/10.0:.1f} °C")
-        print(f"Humidity:    {h_raw/10.0:.1f} %RH")
+        t_raw = read_one(client, SLAVE, REG_TEMP)
+        h_raw = read_one(client, SLAVE, REG_RH)
+        temperature = -46.85 + 175.72 * t_raw / 65536.0
+        humidity = -6 + 125 * h_raw / 65536.0
+        print(f"Temperature: {temperature:.2f} °C")
+        print(f"Humidity:    {humidity:.2f} %RH")
     finally:
         client.close()
 
