@@ -53,7 +53,19 @@ GPGC is a distributed greenhouse monitoring & control system. Edge devices (Luck
 
 ---
 
-## 5) Repository Layout
+## 5) Poller Usage
+Run the backend poller from the repository root to continuously read sensors:
+
+```bash
+python -m backend.poller --interval 30
+```
+
+`--interval` controls the seconds between polling cycles (default `60`). Logs
+are written to stdout and connection errors are logged before retrying.
+
+---
+
+## 6) Repository Layout
 ```
 repo-root/
 ├─ backend/                # Omni apps, API server, pollers
@@ -68,7 +80,7 @@ repo-root/
 
 ---
 
-## 6) Roadmap (From Project Timeline)
+## 7) Roadmap (From Project Timeline)
 - Phase 1: Sensor setup & connectivity
 - Phase 2: Alert system configuration
 - Phase 3: Manual control implementation
@@ -78,12 +90,12 @@ repo-root/
 
 ---
 
-## 7) Security & Access
+## 8) Security & Access
 - API authentication for web/mobile.
 - SSH key auth for backend hosts.
 - Cloud creds stored only on Omni.
 
 ---
 
-## 8) License & Contact
+## 9) License & Contact
 License: Private (GPGC). Maintainer: <add your name/contact>.

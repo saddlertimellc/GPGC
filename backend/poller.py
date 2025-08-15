@@ -1,6 +1,8 @@
+import argparse
 import asyncio
 import logging
 import os
+import sys
 from datetime import datetime
 
 from dotenv import load_dotenv
@@ -8,6 +10,7 @@ from pymodbus.client import AsyncModbusTcpClient
 
 HUMIDITY_REGISTER = 1
 TEMPERATURE_REGISTER = 2
+DEFAULT_INTERVAL = 60.0
 
 
 def load_sensor_addresses() -> list[int]:
@@ -49,7 +52,7 @@ async def read_sensor(client: AsyncModbusTcpClient, address: int) -> None:
     )
 
 
-async def main() -> None:
+async def poll_loop(interval: float) -> None:
     load_dotenv()
     host = os.getenv("RS485_GATEWAY_HOST", "localhost")
     port = int(os.getenv("RS485_GATEWAY_PORT", "502"))
@@ -58,11 +61,38 @@ async def main() -> None:
         logging.warning("No sensor addresses configured")
         return
 
-    async with AsyncModbusTcpClient(host, port=port) as client:
-        for address in addresses:
-            await read_sensor(client, address)
+    while True:
+        try:
+            async with AsyncModbusTcpClient(host, port=port) as client:
+                if not client.connected:
+                    logging.error("Modbus client not connected")
+                else:
+                    for address in addresses:
+                        await read_sensor(client, address)
+        except Exception as exc:  # pragma: no cover - network failure
+            logging.error("Connection error: %s", exc)
+        await asyncio.sleep(interval)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Poll RS485 sensors")
+    parser.add_argument(
+        "--interval",
+        type=float,
+        default=DEFAULT_INTERVAL,
+        help="Polling interval in seconds (default: %(default)s)",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+    try:
+        asyncio.run(poll_loop(args.interval))
+    except KeyboardInterrupt:
+        logging.info("Poller stopped")
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    asyncio.run(main())
+    main()
