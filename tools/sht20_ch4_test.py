@@ -1,9 +1,9 @@
 import argparse, os, sys, time
 from pymodbus.client import ModbusSerialClient, ModbusTcpClient
 
-HOST = os.getenv("GW_CH4_HOST", "192.168.1.204")
-PORT = int(os.getenv("GW_PORT", "4196"))
-SLAVE = int(os.getenv("GW_CH4_SLAVES", "1"))
+HOST = os.getenv("RS485_GATEWAY_HOST", "192.168.1.204")
+PORT = int(os.getenv("RS485_GATEWAY_PORT", "4196"))
+SENSOR_ADDRESS = int(os.getenv("SENSOR_ADDRESS", "1"))
 REG_TEMP = int(os.getenv("REG_TEMP", "0x0001"), 16)
 REG_RH   = int(os.getenv("REG_RH",   "0x0002"), 16)
 
@@ -32,8 +32,8 @@ def main():
         sys.exit(2)
 
     try:
-        t_raw = read_one(client, SLAVE, REG_TEMP)  # °C × 10
-        h_raw = read_one(client, SLAVE, REG_RH)    # %RH × 10
+        t_raw = read_one(client, SENSOR_ADDRESS, REG_TEMP)  # °C × 10
+        h_raw = read_one(client, SENSOR_ADDRESS, REG_RH)    # %RH × 10
         print(f"Temperature: {t_raw/10.0:.1f} °C")
         print(f"Humidity:    {h_raw/10.0:.1f} %RH")
     finally:
