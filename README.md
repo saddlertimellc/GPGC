@@ -63,6 +63,12 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+Copy the example environment file and adjust it for your gateway and sensors:
+
+```bash
+cp .env.example .env
+```
+
 Then run the backend poller from the repository root to continuously read sensors:
 
 ```bash
