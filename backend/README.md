@@ -1,32 +1,41 @@
 # Backend Environment Configuration
 
-The backend expects gateway and sensor parameters to be supplied via environment variables using these patterns:
+The backend expects gateway and sensor parameters to be supplied via environment
+variables using these patterns:
 
 - `GW_<NAME>_HOST`
 - `GW_<NAME>_PORT`
-- `GW_<NAME>_SENSOR<N>_ADDRESS`
-- `GW_<NAME>_SENSOR<N>_FC`
-- `GW_<NAME>_SENSOR<N>_SCALE`
+- `SENSOR<N>_GATEWAY`
+- `SENSOR<N>_UNITID`
+- `SENSOR<N>_TYPE`
+- `SENSOR<N>_FC` *(optional)*
+- `SENSOR<N>_SCALE` *(optional)*
+- `SENSOR<N>_HUMID_REG` *(optional)*
+- `SENSOR<N>_TEMP_REG` *(optional)*
 
-`<NAME>` identifies a gateway while `<N>` selects a sensor on that gateway.
+`<NAME>` identifies a gateway while `<N>` selects a sensor. Each sensor is
+associated with a gateway via the ``SENSOR<N>_GATEWAY`` variable.
 
 ## Example
 
 ```bash
 GW_4XCH1_HOST=192.168.1.201
 GW_4XCH1_PORT=502
-GW_4XCH1_SENSOR1_ADDRESS=0
-GW_4XCH1_SENSOR1_FC=3
-GW_4XCH1_SENSOR1_SCALE=1
-GW_4XCH1_SENSOR2_ADDRESS=2
-GW_4XCH1_SENSOR2_FC=3
-GW_4XCH1_SENSOR2_SCALE=1
-GW_4XCH1_SENSOR3_ADDRESS=4
-GW_4XCH1_SENSOR3_FC=3
-GW_4XCH1_SENSOR3_SCALE=1
-GW_4XCH1_SENSOR4_ADDRESS=6
-GW_4XCH1_SENSOR4_FC=3
-GW_4XCH1_SENSOR4_SCALE=1
+SENSOR1_GATEWAY=4XCH1
+SENSOR1_UNITID=1
+SENSOR1_TYPE=SHT20
+SENSOR2_GATEWAY=4XCH1
+SENSOR2_UNITID=2
+SENSOR2_TYPE=SHT20
+SENSOR3_GATEWAY=4XCH1
+SENSOR3_UNITID=3
+SENSOR3_TYPE=SHT20
+SENSOR4_GATEWAY=4XCH1
+SENSOR4_UNITID=4
+SENSOR4_TYPE=SHT20
 ```
 
-This example mirrors the typical mapping for a four channel gateway.
+This example mirrors the typical mapping for a four channel gateway. Function
+codes and register addresses are inferred from ``SENSOR_TYPES`` based on the
+``SENSOR<N>_TYPE`` values but may be overridden by providing the optional
+variables shown above.
