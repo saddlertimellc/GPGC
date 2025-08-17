@@ -12,12 +12,12 @@ from pymodbus.client import AsyncModbusTcpClient
 SENSOR_TYPES = {
     "SHT20": {
         "function_code": 4,
-        "humidity_register": 1,
-        "temperature_register": 2,
+        "humidity_register": 2,
+        "temperature_register": 1,
         "serial": {"baudrate": 9600, "parity": "N", "stopbits": 1},
     },
     "SHT30": {
-        "function_code": 4,
+        "function_code": 3,
         "humidity_register": 1,
         "temperature_register": 0,
         "serial": {"baudrate": 9600, "parity": "N", "stopbits": 1},
