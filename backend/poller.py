@@ -15,22 +15,31 @@ DEFAULT_INTERVAL = 60.0
 
 
 @dataclass
+class SensorConfig:
+    """Configuration for an individual sensor."""
+
+    function_code: int
+    scale: float | str
+
+
+@dataclass
 class GatewayConfig:
     """Connection and sensor details for a single gateway."""
 
     host: str
     port: int
-    sensors: dict[int, int]
+    sensors: dict[int, SensorConfig]
 
 
-def load_sensor_configs(prefix: str = "") -> dict[int, int]:
-    """Collect sensor addresses and function codes from environment variables.
+def load_sensor_configs(prefix: str = "") -> dict[int, SensorConfig]:
+    """Collect sensor addresses and configuration from environment variables.
 
-    Sensors are configured using pairs of environment variables. With no
-    prefix, variables look like ``SENSOR1_ADDRESS=1`` and ``SENSOR1_FC=4``. For
-    gateway‑specific sensors a prefix such as ``GW1_`` is applied, e.g.
-    ``GW1_SENSOR1_ADDRESS``. If the function code is missing or invalid,
-    function code 3 is assumed.
+    Sensors are configured using environment variable triples. With no prefix,
+    variables look like ``SENSOR1_ADDRESS=1``, ``SENSOR1_FC=4`` and
+    ``SENSOR1_SCALE=10``. For gateway‑specific sensors a prefix such as
+    ``GW1_`` is applied, e.g., ``GW1_SENSOR1_ADDRESS``. If the function code is
+    missing or invalid, function code 3 is assumed. If the scale is missing or
+    invalid, a scale of 1 is used.
 
     Args:
         prefix: Optional prefix for environment variable names, including the
@@ -66,7 +75,7 @@ def load_sensor_configs(prefix: str = "") -> dict[int, int]:
                 logging.warning("Unsupported function code %s=%s", fc_key, fc)
                 fc = 3
 
-            scale_key = f"{prefix}_SCALE"
+            scale_key = f"{prefix}{sensor_prefix}_SCALE"
             scale_env = os.getenv(scale_key, "1")
             if scale_env.lower() == "auto":
                 scale: float | str = "auto"
@@ -117,6 +126,22 @@ def load_gateway_configs() -> list[GatewayConfig]:
             gateways.append(GatewayConfig(host, port, sensors))
 
     return gateways
+
+
+def _apply_scale(value: int, scale: float | str) -> float:
+    """Apply a scaling factor to a Modbus register value.
+
+    When ``scale`` is ``"auto"`` the function attempts a simple inference based
+    on the magnitude of ``value``.
+    """
+
+    if scale == "auto":
+        if value > 10000:
+            return value / 100.0
+        if value > 1000:
+            return value / 10.0
+        return float(value)
+    return value / float(scale)
 
 
 async def read_sensor(
@@ -171,8 +196,13 @@ async def poll_loop(interval: float) -> None:
                             "Modbus client not connected to %s:%s", gateway.host, gateway.port
                         )
                     else:
-                        for address, fc in gateway.sensors.items():
-                            await read_sensor(client, address, fc)
+                        for address, cfg in gateway.sensors.items():
+                            await read_sensor(
+                                client,
+                                address,
+                                cfg.function_code,
+                                cfg.scale,
+                            )
             except Exception as exc:  # pragma: no cover - network failure
                 logging.error(
                     "Connection error %s:%s %s", gateway.host, gateway.port, exc
