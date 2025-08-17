@@ -15,21 +15,26 @@ DEFAULT_INTERVAL = 60.0
 
 
 @dataclass
-class SensorConfig:
-    """Configuration for a single sensor."""
+class GatewayConfig:
+    """Connection and sensor details for a single gateway."""
 
-    function_code: int
-    scale: float | str = 1.0
+    host: str
+    port: int
+    sensors: dict[int, int]
 
 
-def load_sensor_configs() -> dict[int, SensorConfig]:
-    """Collect sensor addresses, function codes, and scales from env vars.
+def load_sensor_configs(prefix: str = "") -> dict[int, int]:
+    """Collect sensor addresses and function codes from environment variables.
 
-    Sensors are configured using groups of environment variables. For example,
-    ``SENSOR1_ADDRESS=1``, ``SENSOR1_FC=4`` and ``SENSOR1_SCALE=10``. If the
-    function code is missing or invalid, function code 3 is assumed. Scale
-    defaults to ``1`` but can also be set to ``auto`` to enable a simple
-    Node-RED-style auto-scaling heuristic.
+    Sensors are configured using pairs of environment variables. With no
+    prefix, variables look like ``SENSOR1_ADDRESS=1`` and ``SENSOR1_FC=4``. For
+    gateway‑specific sensors a prefix such as ``GW1_`` is applied, e.g.
+    ``GW1_SENSOR1_ADDRESS``. If the function code is missing or invalid,
+    function code 3 is assumed.
+
+    Args:
+        prefix: Optional prefix for environment variable names, including the
+            trailing underscore (e.g., ``"GW1_"``).
 
     Returns:
         Mapping of sensor address to configuration.
@@ -37,15 +42,21 @@ def load_sensor_configs() -> dict[int, SensorConfig]:
 
     configs: dict[int, SensorConfig] = {}
     for key, value in os.environ.items():
-        if key.startswith("SENSOR") and key.endswith("_ADDRESS"):
-            prefix = key[: -len("_ADDRESS")]
+        if prefix:
+            if not key.startswith(prefix):
+                continue
+            key_body = key[len(prefix) :]
+        else:
+            key_body = key
+        if key_body.startswith("SENSOR") and key_body.endswith("_ADDRESS"):
+            sensor_prefix = key_body[: -len("_ADDRESS")]
             try:
                 address = int(value)
             except ValueError:
                 logging.warning("Invalid sensor address %s=%s", key, value)
                 continue
 
-            fc_key = f"{prefix}_FC"
+            fc_key = f"{prefix}{sensor_prefix}_FC"
             try:
                 fc = int(os.getenv(fc_key, "3"))
             except ValueError:
@@ -71,17 +82,41 @@ def load_sensor_configs() -> dict[int, SensorConfig]:
     return dict(sorted(configs.items()))
 
 
-def _apply_scale(value: int, scale: float | str) -> float:
-    """Scale a raw register using a factor or simple auto heuristic."""
+def load_gateway_configs() -> list[GatewayConfig]:
+    """Collect gateway connection details and their sensors from environment."""
 
-    if scale == "auto":
-        factor = 1.0
-        scaled = value
-        while scaled < 1000 and scaled != 0:
-            factor *= 10
-            scaled = value * factor
-        return scaled
-    return value * float(scale)
+    gateways: list[GatewayConfig] = []
+
+    prefixes: set[str] = set()
+    for key in os.environ:
+        if key.startswith("GW") and key.endswith("_HOST"):
+            prefixes.add(key[: -len("_HOST")])
+
+    for prefix in sorted(prefixes):
+        host = os.getenv(f"{prefix}_HOST", "localhost")
+        try:
+            port = int(os.getenv(f"{prefix}_PORT", "502"))
+        except ValueError:
+            logging.warning("Invalid port for %s", prefix)
+            continue
+        sensors = load_sensor_configs(f"{prefix}_")
+        if not sensors:
+            logging.warning("No sensor addresses configured for %s", prefix)
+        gateways.append(GatewayConfig(host, port, sensors))
+
+    if not gateways:
+        # Fallback to legacy single-gateway configuration
+        host = os.getenv("RS485_GATEWAY_HOST", "localhost")
+        try:
+            port = int(os.getenv("RS485_GATEWAY_PORT", "502"))
+        except ValueError:
+            logging.warning("Invalid RS485 gateway port")
+            return []
+        sensors = load_sensor_configs()
+        if sensors:
+            gateways.append(GatewayConfig(host, port, sensors))
+
+    return gateways
 
 
 async def read_sensor(
@@ -122,23 +157,26 @@ async def read_sensor(
 
 async def poll_loop(interval: float) -> None:
     load_dotenv()
-    host = os.getenv("RS485_GATEWAY_HOST", "localhost")
-    port = int(os.getenv("RS485_GATEWAY_PORT", "502"))
-    sensor_configs = load_sensor_configs()
-    if not sensor_configs:
-        logging.warning("No sensor addresses configured")
+    gateways = load_gateway_configs()
+    if not gateways:
+        logging.warning("No gateways configured")
         return
 
     while True:
-        try:
-            async with AsyncModbusTcpClient(host, port=port) as client:
-                if not client.connected:
-                    logging.error("Modbus client not connected")
-                else:
-                    for address, cfg in sensor_configs.items():
-                        await read_sensor(client, address, cfg.function_code, cfg.scale)
-        except Exception as exc:  # pragma: no cover - network failure
-            logging.error("Connection error: %s", exc)
+        for gateway in gateways:
+            try:
+                async with AsyncModbusTcpClient(gateway.host, port=gateway.port) as client:
+                    if not client.connected:
+                        logging.error(
+                            "Modbus client not connected to %s:%s", gateway.host, gateway.port
+                        )
+                    else:
+                        for address, fc in gateway.sensors.items():
+                            await read_sensor(client, address, fc)
+            except Exception as exc:  # pragma: no cover - network failure
+                logging.error(
+                    "Connection error %s:%s %s", gateway.host, gateway.port, exc
+                )
         await asyncio.sleep(interval)
 
 

@@ -69,10 +69,9 @@ Copy the example environment file and adjust it for your gateway and sensors:
 cp .env.example .env
 ```
 
-Optional per-sensor scaling can be configured using `SENSOR<N>_SCALE` entries in
-the `.env` file. Set `SENSOR1_SCALE=10` to multiply a sensor's raw registers by
-10 before converting to human-readable units, or use `auto` for a simple
-Node-RED-style heuristic.
+Define `GW1_HOST`/`GW1_PORT` for the first RS485 gateway and
+`GW1_SENSOR<N>_ADDRESS` entries for its sensors. Additional gateways can be
+added with `GW2_HOST`, `GW2_PORT`, and corresponding sensor variables.e heuristic.
 
 Then run the backend poller from the repository root to continuously read sensors:
 
