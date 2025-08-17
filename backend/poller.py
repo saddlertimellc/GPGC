@@ -9,8 +9,21 @@ from datetime import datetime
 from dotenv import load_dotenv
 from pymodbus.client import AsyncModbusTcpClient
 
-HUMIDITY_REGISTER = 1
-TEMPERATURE_REGISTER = 2
+SENSOR_TYPES = {
+    "SHT20": {
+        "function_code": 4,
+        "humidity_register": 1,
+        "temperature_register": 2,
+        "serial": {"baudrate": 9600, "parity": "N", "stopbits": 1},
+    },
+    "SHT30": {
+        "function_code": 4,
+        "humidity_register": 1,
+        "temperature_register": 0,
+        "serial": {"baudrate": 9600, "parity": "N", "stopbits": 1},
+    },
+}
+
 DEFAULT_INTERVAL = 60.0
 
 
@@ -20,6 +33,9 @@ class SensorConfig:
 
     function_code: int
     scale: float | str
+    humid_register: int
+    temp_register: int
+    sensor_type: str
 
 
 @dataclass
@@ -65,15 +81,19 @@ def load_sensor_configs(prefix: str = "") -> dict[int, SensorConfig]:
                 logging.warning("Invalid sensor address %s=%s", key, value)
                 continue
 
+            type_key = f"{prefix}{sensor_prefix}_TYPE"
+            sensor_type = os.getenv(type_key, "SHT20").upper()
+            defaults = SENSOR_TYPES.get(sensor_type, SENSOR_TYPES["SHT20"])
+
             fc_key = f"{prefix}{sensor_prefix}_FC"
             try:
-                fc = int(os.getenv(fc_key, "3"))
+                fc = int(os.getenv(fc_key, str(defaults["function_code"])))
             except ValueError:
                 logging.warning("Invalid function code %s=%s", fc_key, os.getenv(fc_key))
-                fc = 3
+                fc = defaults["function_code"]
             if fc not in (3, 4):
                 logging.warning("Unsupported function code %s=%s", fc_key, fc)
-                fc = 3
+                fc = defaults["function_code"]
 
             scale_key = f"{prefix}{sensor_prefix}_SCALE"
             scale_env = os.getenv(scale_key, "1")
@@ -86,7 +106,31 @@ def load_sensor_configs(prefix: str = "") -> dict[int, SensorConfig]:
                     logging.warning("Invalid scale %s=%s", scale_key, scale_env)
                     scale = 1.0
 
-            configs[address] = SensorConfig(function_code=fc, scale=scale)
+            humid_key = f"{prefix}{sensor_prefix}_HUMID_REG"
+            try:
+                humid_reg = int(
+                    os.getenv(humid_key, str(defaults["humidity_register"]))
+                )
+            except ValueError:
+                logging.warning("Invalid humidity register %s=%s", humid_key, os.getenv(humid_key))
+                humid_reg = defaults["humidity_register"]
+
+            temp_key = f"{prefix}{sensor_prefix}_TEMP_REG"
+            try:
+                temp_reg = int(
+                    os.getenv(temp_key, str(defaults["temperature_register"]))
+                )
+            except ValueError:
+                logging.warning("Invalid temperature register %s=%s", temp_key, os.getenv(temp_key))
+                temp_reg = defaults["temperature_register"]
+
+            configs[address] = SensorConfig(
+                function_code=fc,
+                scale=scale,
+                humid_register=humid_reg,
+                temp_register=temp_reg,
+                sensor_type=sensor_type,
+            )
 
     return dict(sorted(configs.items()))
 
@@ -145,30 +189,37 @@ def _apply_scale(value: int, scale: float | str) -> float:
 
 
 async def read_sensor(
-    client: AsyncModbusTcpClient, address: int, function_code: int, scale: float | str
+    client: AsyncModbusTcpClient, address: int, cfg: SensorConfig
 ) -> None:
     """Read and log humidity and temperature for a sensor."""
     if not client.connected:
         logging.error("Modbus client not connected")
         return
     try:
-        if function_code == 4:
-            result = await client.read_input_registers(
-                HUMIDITY_REGISTER, 2, unit=address
+        if cfg.function_code == 4:
+            humid_res = await client.read_input_registers(
+                cfg.humid_register, 1, unit=address
+            )
+            temp_res = await client.read_input_registers(
+                cfg.temp_register, 1, unit=address
             )
         else:
-            result = await client.read_holding_registers(
-                HUMIDITY_REGISTER, 2, unit=address
+            humid_res = await client.read_holding_registers(
+                cfg.humid_register, 1, unit=address
+            )
+            temp_res = await client.read_holding_registers(
+                cfg.temp_register, 1, unit=address
             )
     except Exception as exc:  # pragma: no cover - network failure
         logging.error("Sensor %s read exception: %s", address, exc)
         return
-    if result.isError():
-        logging.error("Sensor %s read error: %s", address, result)
+    if humid_res.isError() or temp_res.isError():
+        logging.error("Sensor %s read error: %s %s", address, humid_res, temp_res)
         return
-    humidity_raw, temperature_raw = result.registers
-    humidity_raw = _apply_scale(humidity_raw, scale)
-    temperature_raw = _apply_scale(temperature_raw, scale)
+    humidity_raw = humid_res.registers[0]
+    temperature_raw = temp_res.registers[0]
+    humidity_raw = _apply_scale(humidity_raw, cfg.scale)
+    temperature_raw = _apply_scale(temperature_raw, cfg.scale)
     humidity = -6 + 125 * humidity_raw / 65536.0
     temperature = -46.85 + 175.72 * temperature_raw / 65536.0
     logging.info(
@@ -200,8 +251,7 @@ async def poll_loop(interval: float) -> None:
                             await read_sensor(
                                 client,
                                 address,
-                                cfg.function_code,
-                                cfg.scale,
+                                cfg,
                             )
             except Exception as exc:  # pragma: no cover - network failure
                 logging.error(
