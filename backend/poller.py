@@ -7,7 +7,11 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from dotenv import load_dotenv
-from pymodbus.client import AsyncModbusTcpClient
+from pymodbus.client import (
+    AsyncModbusSerialClient,
+    AsyncModbusTcpClient,
+    ModbusBaseClient,
+)
 
 SENSOR_TYPES = {
     "SHT20": {
@@ -45,6 +49,10 @@ class GatewayConfig:
     host: str
     port: int
     sensors: dict[int, SensorConfig]
+    mode: str = "tcp"
+    baudrate: int = 9600
+    parity: str = "N"
+    stopbits: int = 1
 
 
 def load_sensor_configs() -> dict[str, dict[int, SensorConfig]]:
@@ -154,7 +162,45 @@ def load_gateway_configs() -> list[GatewayConfig]:
         except ValueError:
             logging.warning("Invalid port for GW_%s", gateway_name)
             continue
-        gateways.append(GatewayConfig(host, port, sensors))
+        mode = os.getenv(f"GW_{gateway_name}_MODE", "tcp").lower()
+        if mode not in {"tcp", "rtu"}:
+            logging.warning("Invalid mode for GW_%s", gateway_name)
+            mode = "tcp"
+
+        # Determine serial defaults based on the first sensor type
+        serial_defaults = {"baudrate": 9600, "parity": "N", "stopbits": 1}
+        if sensors:
+            first_sensor = next(iter(sensors.values()))
+            serial_defaults = SENSOR_TYPES.get(first_sensor.sensor_type, {}).get(
+                "serial", serial_defaults
+            )
+
+        def _env_int(key: str, default: int) -> int:
+            try:
+                return int(os.getenv(key, str(default)))
+            except ValueError:
+                logging.warning("Invalid %s for GW_%s", key, gateway_name)
+                return default
+
+        baudrate = _env_int(f"GW_{gateway_name}_BAUDRATE", serial_defaults["baudrate"])
+        parity = os.getenv(
+            f"GW_{gateway_name}_PARITY", serial_defaults["parity"]
+        ).upper()
+        stopbits = _env_int(
+            f"GW_{gateway_name}_STOPBITS", serial_defaults["stopbits"]
+        )
+
+        gateways.append(
+            GatewayConfig(
+                host=host,
+                port=port,
+                sensors=sensors,
+                mode=mode,
+                baudrate=baudrate,
+                parity=parity,
+                stopbits=stopbits,
+            )
+        )
 
     return gateways
 
@@ -176,7 +222,7 @@ def _apply_scale(value: int, scale: float | str) -> float:
 
 
 async def read_sensor(
-    client: AsyncModbusTcpClient, address: int, cfg: SensorConfig
+    client: ModbusBaseClient, address: int, cfg: SensorConfig
 ) -> None:
     """Read and log humidity and temperature for a sensor."""
     if not client.connected:
@@ -228,18 +274,35 @@ async def poll_loop(interval: float) -> None:
     while True:
         for gateway in gateways:
             try:
-                async with AsyncModbusTcpClient(gateway.host, port=gateway.port) as client:
-                    if not client.connected:
-                        logging.error(
-                            "Modbus client not connected to %s:%s", gateway.host, gateway.port
-                        )
-                    else:
-                        for address, cfg in gateway.sensors.items():
-                            await read_sensor(
-                                client,
-                                address,
-                                cfg,
+                if gateway.mode == "rtu":
+                    async with AsyncModbusSerialClient(
+                        port=f"socket://{gateway.host}:{gateway.port}",
+                        baudrate=gateway.baudrate,
+                        parity=gateway.parity,
+                        stopbits=gateway.stopbits,
+                    ) as client:
+                        if not client.connected:
+                            logging.error(
+                                "Modbus client not connected to %s:%s",
+                                gateway.host,
+                                gateway.port,
                             )
+                        else:
+                            for address, cfg in gateway.sensors.items():
+                                await read_sensor(client, address, cfg)
+                else:
+                    async with AsyncModbusTcpClient(
+                        gateway.host, port=gateway.port
+                    ) as client:
+                        if not client.connected:
+                            logging.error(
+                                "Modbus client not connected to %s:%s",
+                                gateway.host,
+                                gateway.port,
+                            )
+                        else:
+                            for address, cfg in gateway.sensors.items():
+                                await read_sensor(client, address, cfg)
             except Exception as exc:  # pragma: no cover - network failure
                 logging.error(
                     "Connection error %s:%s %s", gateway.host, gateway.port, exc

@@ -5,6 +5,10 @@ variables using these patterns:
 
 - `GW_<NAME>_HOST`
 - `GW_<NAME>_PORT`
+- `GW_<NAME>_MODE` *(optional, "tcp" or "rtu", defaults to "tcp")*
+- `GW_<NAME>_BAUDRATE` *(optional, for ``rtu`` mode)*
+- `GW_<NAME>_PARITY` *(optional, for ``rtu`` mode)*
+- `GW_<NAME>_STOPBITS` *(optional, for ``rtu`` mode)*
 - `SENSOR<N>_GATEWAY`
 - `SENSOR<N>_UNITID`
 - `SENSOR<N>_TYPE`
@@ -21,6 +25,10 @@ associated with a gateway via the ``SENSOR<N>_GATEWAY`` variable.
 ```bash
 GW_4XCH1_HOST=192.168.1.201
 GW_4XCH1_PORT=502
+GW_4XCH1_MODE=rtu
+GW_4XCH1_BAUDRATE=9600
+GW_4XCH1_PARITY=N
+GW_4XCH1_STOPBITS=1
 SENSOR1_GATEWAY=4XCH1
 SENSOR1_UNITID=1
 SENSOR1_TYPE=SHT20
