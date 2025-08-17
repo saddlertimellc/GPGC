@@ -69,6 +69,11 @@ Copy the example environment file and adjust it for your gateway and sensors:
 cp .env.example .env
 ```
 
+Optional per-sensor scaling can be configured using `SENSOR<N>_SCALE` entries in
+the `.env` file. Set `SENSOR1_SCALE=10` to multiply a sensor's raw registers by
+10 before converting to human-readable units, or use `auto` for a simple
+Node-RED-style heuristic.
+
 Then run the backend poller from the repository root to continuously read sensors:
 
 ```bash
