@@ -37,10 +37,10 @@ def load_sensor_configs(prefix: str = "") -> dict[int, int]:
             trailing underscore (e.g., ``"GW1_"``).
 
     Returns:
-        Mapping of sensor address to Modbus function code (3 or 4).
+        Mapping of sensor address to configuration.
     """
 
-    configs: dict[int, int] = {}
+    configs: dict[int, SensorConfig] = {}
     for key, value in os.environ.items():
         if prefix:
             if not key.startswith(prefix):
@@ -65,7 +65,19 @@ def load_sensor_configs(prefix: str = "") -> dict[int, int]:
             if fc not in (3, 4):
                 logging.warning("Unsupported function code %s=%s", fc_key, fc)
                 fc = 3
-            configs[address] = fc
+
+            scale_key = f"{prefix}_SCALE"
+            scale_env = os.getenv(scale_key, "1")
+            if scale_env.lower() == "auto":
+                scale: float | str = "auto"
+            else:
+                try:
+                    scale = float(scale_env)
+                except ValueError:
+                    logging.warning("Invalid scale %s=%s", scale_key, scale_env)
+                    scale = 1.0
+
+            configs[address] = SensorConfig(function_code=fc, scale=scale)
 
     return dict(sorted(configs.items()))
 
@@ -108,7 +120,7 @@ def load_gateway_configs() -> list[GatewayConfig]:
 
 
 async def read_sensor(
-    client: AsyncModbusTcpClient, address: int, function_code: int
+    client: AsyncModbusTcpClient, address: int, function_code: int, scale: float | str
 ) -> None:
     """Read and log humidity and temperature for a sensor."""
     if not client.connected:
@@ -130,6 +142,8 @@ async def read_sensor(
         logging.error("Sensor %s read error: %s", address, result)
         return
     humidity_raw, temperature_raw = result.registers
+    humidity_raw = _apply_scale(humidity_raw, scale)
+    temperature_raw = _apply_scale(temperature_raw, scale)
     humidity = -6 + 125 * humidity_raw / 65536.0
     temperature = -46.85 + 175.72 * temperature_raw / 65536.0
     logging.info(
