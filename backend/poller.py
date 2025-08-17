@@ -47,127 +47,114 @@ class GatewayConfig:
     sensors: dict[int, SensorConfig]
 
 
-def load_sensor_configs(prefix: str = "") -> dict[int, SensorConfig]:
-    """Collect sensor addresses and configuration from environment variables.
+def load_sensor_configs() -> dict[str, dict[int, SensorConfig]]:
+    """Collect sensor configuration from environment variables.
 
-    Sensors are configured using environment variable triples. With no prefix,
-    variables look like ``SENSOR1_ADDRESS=1``, ``SENSOR1_FC=4`` and
-    ``SENSOR1_SCALE=10``. For gateway‑specific sensors a prefix such as
-    ``GW1_`` is applied, e.g., ``GW1_SENSOR1_ADDRESS``. If the function code is
-    missing or invalid, function code 3 is assumed. If the scale is missing or
-    invalid, a scale of 1 is used.
+    Sensors are declared using numbered environment variable groups. Each group
+    must provide a gateway name and unit ID, e.g.::
 
-    Args:
-        prefix: Optional prefix for environment variable names, including the
-            trailing underscore (e.g., ``"GW1_"``).
+        SENSOR1_GATEWAY=4XCH1
+        SENSOR1_UNITID=1
+        SENSOR1_TYPE=SHT20
+
+    Optional variables ``SENSOR<N>_FC``, ``SENSOR<N>_SCALE``,
+    ``SENSOR<N>_HUMID_REG`` and ``SENSOR<N>_TEMP_REG`` may override defaults
+    derived from ``SENSOR_TYPES``.
 
     Returns:
-        Mapping of sensor address to configuration.
+        Mapping of gateway name to mapping of unit ID to ``SensorConfig``.
     """
 
-    configs: dict[int, SensorConfig] = {}
+    configs: dict[str, dict[int, SensorConfig]] = {}
     for key, value in os.environ.items():
-        if prefix:
-            if not key.startswith(prefix):
-                continue
-            key_body = key[len(prefix) :]
+        if not key.startswith("SENSOR") or not key.endswith("_GATEWAY"):
+            continue
+        sensor_prefix = key[: -len("_GATEWAY")]
+        gateway_name = value
+
+        unit_key = f"{sensor_prefix}_UNITID"
+        try:
+            unit_id = int(os.getenv(unit_key, ""))
+        except ValueError:
+            logging.warning("Invalid unit id %s=%s", unit_key, os.getenv(unit_key))
+            continue
+
+        type_key = f"{sensor_prefix}_TYPE"
+        sensor_type = os.getenv(type_key, "SHT20").upper()
+        defaults = SENSOR_TYPES.get(sensor_type, SENSOR_TYPES["SHT20"])
+
+        fc_key = f"{sensor_prefix}_FC"
+        try:
+            fc = int(os.getenv(fc_key, str(defaults["function_code"])))
+        except ValueError:
+            logging.warning("Invalid function code %s=%s", fc_key, os.getenv(fc_key))
+            fc = defaults["function_code"]
+        if fc not in (3, 4):
+            logging.warning("Unsupported function code %s=%s", fc_key, fc)
+            fc = defaults["function_code"]
+
+        scale_key = f"{sensor_prefix}_SCALE"
+        scale_env = os.getenv(scale_key, "1")
+        if scale_env.lower() == "auto":
+            scale: float | str = "auto"
         else:
-            key_body = key
-        if key_body.startswith("SENSOR") and key_body.endswith("_ADDRESS"):
-            sensor_prefix = key_body[: -len("_ADDRESS")]
             try:
-                address = int(value)
+                scale = float(scale_env)
             except ValueError:
-                logging.warning("Invalid sensor address %s=%s", key, value)
-                continue
+                logging.warning("Invalid scale %s=%s", scale_key, scale_env)
+                scale = 1.0
 
-            type_key = f"{prefix}{sensor_prefix}_TYPE"
-            sensor_type = os.getenv(type_key, "SHT20").upper()
-            defaults = SENSOR_TYPES.get(sensor_type, SENSOR_TYPES["SHT20"])
-
-            fc_key = f"{prefix}{sensor_prefix}_FC"
-            try:
-                fc = int(os.getenv(fc_key, str(defaults["function_code"])))
-            except ValueError:
-                logging.warning("Invalid function code %s=%s", fc_key, os.getenv(fc_key))
-                fc = defaults["function_code"]
-            if fc not in (3, 4):
-                logging.warning("Unsupported function code %s=%s", fc_key, fc)
-                fc = defaults["function_code"]
-
-            scale_key = f"{prefix}{sensor_prefix}_SCALE"
-            scale_env = os.getenv(scale_key, "1")
-            if scale_env.lower() == "auto":
-                scale: float | str = "auto"
-            else:
-                try:
-                    scale = float(scale_env)
-                except ValueError:
-                    logging.warning("Invalid scale %s=%s", scale_key, scale_env)
-                    scale = 1.0
-
-            humid_key = f"{prefix}{sensor_prefix}_HUMID_REG"
-            try:
-                humid_reg = int(
-                    os.getenv(humid_key, str(defaults["humidity_register"]))
-                )
-            except ValueError:
-                logging.warning("Invalid humidity register %s=%s", humid_key, os.getenv(humid_key))
-                humid_reg = defaults["humidity_register"]
-
-            temp_key = f"{prefix}{sensor_prefix}_TEMP_REG"
-            try:
-                temp_reg = int(
-                    os.getenv(temp_key, str(defaults["temperature_register"]))
-                )
-            except ValueError:
-                logging.warning("Invalid temperature register %s=%s", temp_key, os.getenv(temp_key))
-                temp_reg = defaults["temperature_register"]
-
-            configs[address] = SensorConfig(
-                function_code=fc,
-                scale=scale,
-                humid_register=humid_reg,
-                temp_register=temp_reg,
-                sensor_type=sensor_type,
+        humid_key = f"{sensor_prefix}_HUMID_REG"
+        try:
+            humid_reg = int(
+                os.getenv(humid_key, str(defaults["humidity_register"]))
             )
+        except ValueError:
+            logging.warning("Invalid humidity register %s=%s", humid_key, os.getenv(humid_key))
+            humid_reg = defaults["humidity_register"]
 
-    return dict(sorted(configs.items()))
+        temp_key = f"{sensor_prefix}_TEMP_REG"
+        try:
+            temp_reg = int(
+                os.getenv(temp_key, str(defaults["temperature_register"]))
+            )
+        except ValueError:
+            logging.warning(
+                "Invalid temperature register %s=%s", temp_key, os.getenv(temp_key)
+            )
+            temp_reg = defaults["temperature_register"]
+
+        cfg = SensorConfig(
+            function_code=fc,
+            scale=scale,
+            humid_register=humid_reg,
+            temp_register=temp_reg,
+            sensor_type=sensor_type,
+        )
+
+        gateway_sensors = configs.setdefault(gateway_name, {})
+        gateway_sensors[unit_id] = cfg
+
+    return {
+        gw: dict(sorted(sensors.items()))
+        for gw, sensors in sorted(configs.items())
+    }
 
 
 def load_gateway_configs() -> list[GatewayConfig]:
     """Collect gateway connection details and their sensors from environment."""
 
+    sensor_groups = load_sensor_configs()
     gateways: list[GatewayConfig] = []
 
-    prefixes: set[str] = set()
-    for key in os.environ:
-        if key.startswith("GW") and key.endswith("_HOST"):
-            prefixes.add(key[: -len("_HOST")])
-
-    for prefix in sorted(prefixes):
-        host = os.getenv(f"{prefix}_HOST", "localhost")
+    for gateway_name, sensors in sensor_groups.items():
+        host = os.getenv(f"GW_{gateway_name}_HOST", "localhost")
         try:
-            port = int(os.getenv(f"{prefix}_PORT", "502"))
+            port = int(os.getenv(f"GW_{gateway_name}_PORT", "502"))
         except ValueError:
-            logging.warning("Invalid port for %s", prefix)
+            logging.warning("Invalid port for GW_%s", gateway_name)
             continue
-        sensors = load_sensor_configs(f"{prefix}_")
-        if not sensors:
-            logging.warning("No sensor addresses configured for %s", prefix)
         gateways.append(GatewayConfig(host, port, sensors))
-
-    if not gateways:
-        # Fallback to legacy single-gateway configuration
-        host = os.getenv("RS485_GATEWAY_HOST", "localhost")
-        try:
-            port = int(os.getenv("RS485_GATEWAY_PORT", "502"))
-        except ValueError:
-            logging.warning("Invalid RS485 gateway port")
-            return []
-        sensors = load_sensor_configs()
-        if sensors:
-            gateways.append(GatewayConfig(host, port, sensors))
 
     return gateways
 
