@@ -59,11 +59,11 @@ async def read_sensor(
     try:
         if function_code == 4:
             result = await client.read_input_registers(
-                HUMIDITY_REGISTER, 2, slave=address
+                HUMIDITY_REGISTER, 2, unit=address
             )
         else:
             result = await client.read_holding_registers(
-                HUMIDITY_REGISTER, 2, slave=address
+                HUMIDITY_REGISTER, 2, unit=address
             )
     except Exception as exc:  # pragma: no cover - network failure
         logging.error("Sensor %s read exception: %s", address, exc)
