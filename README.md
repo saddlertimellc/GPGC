@@ -69,6 +69,10 @@ Copy the example environment file and adjust it for your gateway and sensors:
 cp .env.example .env
 ```
 
+Define `GW1_HOST`/`GW1_PORT` for the first RS485 gateway and
+`GW1_SENSOR<N>_ADDRESS` entries for its sensors. Additional gateways can be
+added with `GW2_HOST`, `GW2_PORT`, and corresponding sensor variables.
+
 Then run the backend poller from the repository root to continuously read sensors:
 
 ```bash
