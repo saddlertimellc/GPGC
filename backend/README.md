@@ -39,3 +39,14 @@ This example mirrors the typical mapping for a four channel gateway. Function
 codes and register addresses are inferred from ``SENSOR_TYPES`` based on the
 ``SENSOR<N>_TYPE`` values but may be overridden by providing the optional
 variables shown above.
+
+## Adding sensors interactively
+
+The ``backend`` module provides a small helper script to append new sensor
+definitions to the project's ``.env`` file. Run::
+
+    python backend/add_sensor.py
+
+You will be prompted for the sensor type, gateway/channel name and Modbus unit
+ID. Connection details and derived registers are appended to ``.env`` so that
+``poller.py`` can load the configuration without manual edits.
