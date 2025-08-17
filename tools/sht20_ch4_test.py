@@ -2,7 +2,7 @@ import argparse, os, sys, time
 from pymodbus.client import ModbusSerialClient, ModbusTcpClient
 
 HOST = os.getenv("RS485_GATEWAY_HOST", "192.168.1.204")
-PORT = int(os.getenv("RS485_GATEWAY_PORT", "4196"))
+PORT = int(os.getenv("RS485_GATEWAY_PORT", "4502"))
 SENSOR_ADDRESS = int(os.getenv("SENSOR_ADDRESS", "1"))
 REG_TEMP = int(os.getenv("REG_TEMP", "0x0001"), 16)
 REG_RH   = int(os.getenv("REG_RH",   "0x0002"), 16)
