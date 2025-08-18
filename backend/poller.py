@@ -280,8 +280,28 @@ async def read_pair(
 
     if hasattr(client, "unit_id"):
         client.unit_id = unit
-    rr = await func(address=start_addr, count=2)
-    return _ok(rr)
+    try:
+        rr = await func(address=start_addr, count=2)
+        return _ok(rr)
+    except Exception as exc:  # pragma: no cover - network failure
+        host = getattr(client, "host", None)
+        port = getattr(client, "port", None)
+        params = getattr(client, "comm_params", None) or getattr(client, "params", None)
+        if params:
+            host = host or getattr(params, "host", None) or getattr(params, "address", None)
+            port = port or getattr(params, "port", None)
+            if isinstance(params, dict):
+                host = host or params.get("host") or params.get("address")
+                port = port or params.get("port")
+        logging.error(
+            "FC%02d read failed from %s:%s unit %s: %s",
+            fc,
+            host,
+            port,
+            unit,
+            exc,
+        )
+        raise
 
 
 async def read_sensor(
