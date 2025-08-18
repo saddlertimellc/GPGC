@@ -1,3 +1,4 @@
 pymodbus>=3.5
 python-dotenv>=1.0
+google-cloud-firestore>=2.21
 # Additional libraries will be added as features expand (e.g., logging, CLI, database)
