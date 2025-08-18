@@ -34,6 +34,7 @@ DEFAULT_INTERVAL = 60.0
 
 
 load_dotenv()
+DEGREES_F = os.getenv("DEGREES_F", "").lower() in {"1", "true", "yes"}
 FIRESTORE_PROJECT = os.getenv("FIRESTORE_PROJECT")
 FIRESTORE_COLLECTION = os.getenv("FIRESTORE_COLLECTION")
 try:  # pragma: no cover - requires credentials
@@ -366,16 +367,24 @@ async def read_sensor(
         temperature_raw = _apply_scale(temperature_raw, cfg.scale)
         humidity = -6 + 125 * humidity_raw / 65536.0
         temperature = -46.85 + 175.72 * temperature_raw / 65536.0
+
+    if DEGREES_F:
+        temperature = temperature * 9 / 5 + 32
+        temp_unit = "°F"
+    else:
+        temp_unit = "°C"
+
     debug_info = [cfg.device_id, channel]
     ts = datetime.utcnow().isoformat()
     logging.info(
-        "address=%s device=%s channel=%s timestamp=%s humidity=%.2f%% temperature=%.2f°C debug=%s",
+        "address=%s device=%s channel=%s timestamp=%s humidity=%.2f%% temperature=%.2f%s debug=%s",
         address,
         cfg.device_id,
         channel,
         ts,
         humidity,
         temperature,
+        temp_unit,
         debug_info,
     )
     await publish_reading(cfg.device_id, channel, ts, temperature, humidity)
