@@ -5,6 +5,7 @@ import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from dotenv import load_dotenv
 from pymodbus.client import (
@@ -221,6 +222,54 @@ def _apply_scale(value: int, scale: float | str) -> float:
     return value / float(scale)
 
 
+async def read_pair(
+    client: ModbusBaseClient, unit: int, start_addr: int, fc: int
+) -> list[int]:
+    """Read two consecutive registers using either FC03 or FC04.
+
+    Tries a variety of parameter conventions for maximum compatibility with
+    different ``pymodbus`` versions: ``slave=`` first, then ``unit=``, then a
+    positional unit, finally falling back to setting ``client.unit_id`` and
+    calling without a unit argument.
+    """
+
+    def _ok(rr: Any) -> list[int]:
+        if not rr or rr.isError():
+            raise RuntimeError(
+                f"FC{fc:02d} @ {start_addr} (qty=2) unit {unit}: {rr}"
+            )
+        return rr.registers
+
+    func = (
+        client.read_input_registers
+        if fc == 4
+        else client.read_holding_registers
+    )
+
+    try:
+        rr = await func(address=start_addr, count=2, slave=unit)
+        return _ok(rr)
+    except TypeError:
+        pass
+
+    try:
+        rr = await func(address=start_addr, count=2, unit=unit)
+        return _ok(rr)
+    except TypeError:
+        pass
+
+    try:
+        rr = await func(start_addr, 2, unit)
+        return _ok(rr)
+    except TypeError:
+        pass
+
+    if hasattr(client, "unit_id"):
+        client.unit_id = unit
+    rr = await func(address=start_addr, count=2)
+    return _ok(rr)
+
+
 async def read_sensor(
     client: ModbusBaseClient, address: int, cfg: SensorConfig
 ) -> None:
@@ -228,29 +277,17 @@ async def read_sensor(
     if not client.connected:
         logging.error("Modbus client not connected")
         return
+    start_addr = min(cfg.humid_register, cfg.temp_register)
     try:
-        if cfg.function_code == 4:
-            humid_res = await client.read_input_registers(
-                cfg.humid_register, 1, unit=address
-            )
-            temp_res = await client.read_input_registers(
-                cfg.temp_register, 1, unit=address
-            )
-        else:
-            humid_res = await client.read_holding_registers(
-                cfg.humid_register, 1, unit=address
-            )
-            temp_res = await client.read_holding_registers(
-                cfg.temp_register, 1, unit=address
-            )
+        regs = await read_pair(client, address, start_addr, cfg.function_code)
     except Exception as exc:  # pragma: no cover - network failure
         logging.error("Sensor %s read exception: %s", address, exc)
         return
-    if humid_res.isError() or temp_res.isError():
-        logging.error("Sensor %s read error: %s %s", address, humid_res, temp_res)
-        return
-    humidity_raw = humid_res.registers[0]
-    temperature_raw = temp_res.registers[0]
+
+    if cfg.humid_register < cfg.temp_register:
+        humidity_raw, temperature_raw = regs[0], regs[1]
+    else:
+        temperature_raw, humidity_raw = regs[0], regs[1]
     humidity_raw = _apply_scale(humidity_raw, cfg.scale)
     temperature_raw = _apply_scale(temperature_raw, cfg.scale)
     humidity = -6 + 125 * humidity_raw / 65536.0
