@@ -14,6 +14,7 @@ variables using these patterns:
 - `SENSOR<N>_TYPE`
 - `SENSOR<N>_FC` *(optional)*
 - `SENSOR<N>_SCALE` *(optional)*
+- `SENSOR<N>_CONVERSION` *(optional, "sht_formula" or "scaled")*
 - `SENSOR<N>_HUMID_REG` *(optional)*
 - `SENSOR<N>_TEMP_REG` *(optional)*
 
@@ -46,7 +47,10 @@ SENSOR4_TYPE=SHT20
 This example mirrors the typical mapping for a four channel gateway. Function
 codes and register addresses are inferred from ``SENSOR_TYPES`` based on the
 ``SENSOR<N>_TYPE`` values but may be overridden by providing the optional
-variables shown above.
+variables shown above. ``SENSOR<N>_CONVERSION`` controls whether raw register
+values are interpreted using the Sensirion formula (``"sht_formula"``) or as
+already scaled readings (``"scaled"``). Sensors ``SHT20`` and ``SHT30`` default
+to the ``"scaled"`` mode.
 
 ## Adding sensors interactively
 
