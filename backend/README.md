@@ -22,6 +22,22 @@ variables using these patterns:
 `<NAME>` identifies a gateway while `<N>` selects a sensor. Each sensor is
 associated with a gateway via the ``SENSOR<N>_GATEWAY`` variable.
 
+## Firestore configuration
+
+Readings may be stored in Google Cloud Firestore. Supply the connection
+information via the following environment variables, either in your ``.env``
+file or directly in the shell:
+
+```bash
+FIRESTORE_PROJECT=your-project-id
+FIRESTORE_COLLECTION=your-collection-name
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json
+```
+
+The ``GOOGLE_APPLICATION_CREDENTIALS`` value must point to a service account
+key JSON file with permission to access Firestore. You can create and download
+this key from the Google Cloud Console under **IAM & Admin → Service Accounts**.
+
 ## Example
 
 ```bash
