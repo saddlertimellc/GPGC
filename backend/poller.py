@@ -17,12 +17,14 @@ from pymodbus.client import (
 
 SENSOR_TYPES = {
     "SHT20": {
+        "scale": 10,
         "function_code": 4,
         "humidity_register": 2,
         "temperature_register": 1,
         "serial": {"baudrate": 9600, "parity": "N", "stopbits": 1},
     },
     "SHT30": {
+        "scale": 100,
         "function_code": 3,
         "humidity_register": 1,
         "temperature_register": 0,
@@ -121,7 +123,8 @@ def load_sensor_configs() -> dict[str, dict[int, SensorConfig]]:
             fc = defaults["function_code"]
 
         scale_key = f"{sensor_prefix}_SCALE"
-        scale_env = os.getenv(scale_key, "1")
+        defaults_scale = defaults.get("scale", 1)
+        scale_env = os.getenv(scale_key, str(defaults_scale))
         if scale_env.lower() == "auto":
             scale: float | str = "auto"
         else:
@@ -129,7 +132,7 @@ def load_sensor_configs() -> dict[str, dict[int, SensorConfig]]:
                 scale = float(scale_env)
             except ValueError:
                 logging.warning("Invalid scale %s=%s", scale_key, scale_env)
-                scale = 1.0
+                scale = float(defaults_scale)
 
         conv_key = f"{sensor_prefix}_CONVERSION"
         default_conv = "scaled" if sensor_type in {"SHT20", "SHT30"} else "sht_formula"
@@ -355,12 +358,8 @@ async def read_sensor(
         temperature_raw, humidity_raw = regs[0], regs[1]
 
     if cfg.conversion == "scaled":
-        if cfg.scale == 1:
-            humidity = humidity_raw / 10.0
-            temperature = temperature_raw / 10.0
-        else:
-            humidity = _apply_scale(humidity_raw, cfg.scale)
-            temperature = _apply_scale(temperature_raw, cfg.scale)
+        humidity = _apply_scale(humidity_raw, cfg.scale)
+        temperature = _apply_scale(temperature_raw, cfg.scale)
     else:
         humidity_raw = _apply_scale(humidity_raw, cfg.scale)
         temperature_raw = _apply_scale(temperature_raw, cfg.scale)
