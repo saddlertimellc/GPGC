@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any
 
 from dotenv import load_dotenv
+from google.cloud import firestore
 from pymodbus.client import (
     AsyncModbusSerialClient,
     AsyncModbusTcpClient,
@@ -30,6 +31,16 @@ SENSOR_TYPES = {
 }
 
 DEFAULT_INTERVAL = 60.0
+
+
+load_dotenv()
+FIRESTORE_PROJECT = os.getenv("FIRESTORE_PROJECT")
+FIRESTORE_COLLECTION = os.getenv("FIRESTORE_COLLECTION")
+try:  # pragma: no cover - requires credentials
+    firestore_client = firestore.AsyncClient(project=FIRESTORE_PROJECT)
+except Exception as exc:  # pragma: no cover - credentials misconfigured
+    logging.warning("Firestore client init failed: %s", exc)
+    firestore_client = None
 
 
 @dataclass
@@ -310,6 +321,20 @@ async def read_pair(
         raise
 
 
+async def publish_reading(
+    dev_id: str, channel: str, ts: str, temp_c: float, rh: float
+) -> None:
+    if firestore_client is None or not FIRESTORE_COLLECTION:
+        return
+    doc = (
+        firestore_client.collection(FIRESTORE_COLLECTION)
+        .document(dev_id)
+        .collection("readings")
+        .document(str(ts))
+    )
+    await doc.set({"channel": channel, "temp_c": temp_c, "rh": rh})
+
+
 async def read_sensor(
     client: ModbusBaseClient, address: int, cfg: SensorConfig, channel: str
 ) -> None:
@@ -342,16 +367,18 @@ async def read_sensor(
         humidity = -6 + 125 * humidity_raw / 65536.0
         temperature = -46.85 + 175.72 * temperature_raw / 65536.0
     debug_info = [cfg.device_id, channel]
+    ts = datetime.utcnow().isoformat()
     logging.info(
         "address=%s device=%s channel=%s timestamp=%s humidity=%.2f%% temperature=%.2f°C debug=%s",
         address,
         cfg.device_id,
         channel,
-        datetime.utcnow().isoformat(),
+        ts,
         humidity,
         temperature,
         debug_info,
     )
+    await publish_reading(cfg.device_id, channel, ts, temperature, humidity)
 
 
 async def poll_loop(interval: float) -> None:
