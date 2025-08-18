@@ -70,6 +70,7 @@ def main() -> None:
     fc = defaults["function_code"]
     humid_reg = defaults["humidity_register"]
     temp_reg = defaults["temperature_register"]
+    conversion = "scaled" if sensor_type in {"SHT20", "SHT30"} else "sht_formula"
 
     sensor_number = _next_sensor_number(env)
 
@@ -90,6 +91,7 @@ def main() -> None:
             f"{prefix}_UNITID={unit_id}\n",
             f"{prefix}_TYPE={sensor_type}\n",
             f"{prefix}_FC={fc}\n",
+            f"{prefix}_CONVERSION={conversion}\n",
             f"{prefix}_HUMID_REG={humid_reg}\n",
             f"{prefix}_TEMP_REG={temp_reg}\n",
         ]

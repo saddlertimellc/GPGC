@@ -41,6 +41,7 @@ class SensorConfig:
     humid_register: int
     temp_register: int
     sensor_type: str
+    conversion: str
 
 
 @dataclass
@@ -68,7 +69,9 @@ def load_sensor_configs() -> dict[str, dict[int, SensorConfig]]:
 
     Optional variables ``SENSOR<N>_FC``, ``SENSOR<N>_SCALE``,
     ``SENSOR<N>_HUMID_REG`` and ``SENSOR<N>_TEMP_REG`` may override defaults
-    derived from ``SENSOR_TYPES``.
+    derived from ``SENSOR_TYPES``. ``SENSOR<N>_CONVERSION`` controls how raw
+    register values are converted into human readable units and accepts either
+    ``"sht_formula"`` or ``"scaled"``.
 
     Returns:
         Mapping of gateway name to mapping of unit ID to ``SensorConfig``.
@@ -113,6 +116,16 @@ def load_sensor_configs() -> dict[str, dict[int, SensorConfig]]:
                 logging.warning("Invalid scale %s=%s", scale_key, scale_env)
                 scale = 1.0
 
+        conv_key = f"{sensor_prefix}_CONVERSION"
+        default_conv = "scaled" if sensor_type in {"SHT20", "SHT30"} else "sht_formula"
+        conv_env = os.getenv(conv_key, default_conv)
+        conv_env_lower = conv_env.lower()
+        if conv_env_lower not in {"sht_formula", "scaled"}:
+            logging.warning("Invalid conversion %s=%s", conv_key, conv_env)
+            conversion = default_conv
+        else:
+            conversion = conv_env_lower
+
         humid_key = f"{sensor_prefix}_HUMID_REG"
         try:
             humid_reg = int(
@@ -139,6 +152,7 @@ def load_sensor_configs() -> dict[str, dict[int, SensorConfig]]:
             humid_register=humid_reg,
             temp_register=temp_reg,
             sensor_type=sensor_type,
+            conversion=conversion,
         )
 
         gateway_sensors = configs.setdefault(gateway_name, {})
@@ -288,10 +302,19 @@ async def read_sensor(
         humidity_raw, temperature_raw = regs[0], regs[1]
     else:
         temperature_raw, humidity_raw = regs[0], regs[1]
-    humidity_raw = _apply_scale(humidity_raw, cfg.scale)
-    temperature_raw = _apply_scale(temperature_raw, cfg.scale)
-    humidity = -6 + 125 * humidity_raw / 65536.0
-    temperature = -46.85 + 175.72 * temperature_raw / 65536.0
+
+    if cfg.conversion == "scaled":
+        if cfg.scale == 1:
+            humidity = humidity_raw / 10.0
+            temperature = temperature_raw / 10.0
+        else:
+            humidity = _apply_scale(humidity_raw, cfg.scale)
+            temperature = _apply_scale(temperature_raw, cfg.scale)
+    else:
+        humidity_raw = _apply_scale(humidity_raw, cfg.scale)
+        temperature_raw = _apply_scale(temperature_raw, cfg.scale)
+        humidity = -6 + 125 * humidity_raw / 65536.0
+        temperature = -46.85 + 175.72 * temperature_raw / 65536.0
     logging.info(
         "address=%s timestamp=%s humidity=%.2f%% temperature=%.2f°C",
         address,
