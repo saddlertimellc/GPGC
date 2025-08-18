@@ -38,6 +38,13 @@ The ``GOOGLE_APPLICATION_CREDENTIALS`` value must point to a service account
 key JSON file with permission to access Firestore. You can create and download
 this key from the Google Cloud Console under **IAM & Admin → Service Accounts**.
 
+## Temperature units
+
+Temperatures are logged and published in Celsius by default. Set
+``DEGREES_F=1`` to convert readings to Fahrenheit::
+
+    DEGREES_F=1
+
 ## Example
 
 ```bash
