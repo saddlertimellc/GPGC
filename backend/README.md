@@ -12,6 +12,7 @@ variables using these patterns:
 - `SENSOR<N>_GATEWAY`
 - `SENSOR<N>_UNITID`
 - `SENSOR<N>_TYPE`
+- `SENSOR<N>_DEVID` *(optional, defaults to the sensor prefix)*
 - `SENSOR<N>_FC` *(optional)*
 - `SENSOR<N>_SCALE` *(optional)*
 - `SENSOR<N>_CONVERSION` *(optional, "sht_formula" or "scaled")*

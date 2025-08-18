@@ -35,7 +35,7 @@ DEFAULT_INTERVAL = 60.0
 @dataclass
 class SensorConfig:
     """Configuration for an individual sensor."""
-
+    device_id: str
     function_code: int
     scale: float | str
     humid_register: int
@@ -48,6 +48,7 @@ class SensorConfig:
 class GatewayConfig:
     """Connection and sensor details for a single gateway."""
 
+    name: str
     host: str
     port: int
     sensors: dict[int, SensorConfig]
@@ -67,7 +68,7 @@ def load_sensor_configs() -> dict[str, dict[int, SensorConfig]]:
         SENSOR1_UNITID=1
         SENSOR1_TYPE=SHT20
 
-    Optional variables ``SENSOR<N>_FC``, ``SENSOR<N>_SCALE``,
+    Optional variables ``SENSOR<N>_DEVID``, ``SENSOR<N>_FC``, ``SENSOR<N>_SCALE``,
     ``SENSOR<N>_HUMID_REG`` and ``SENSOR<N>_TEMP_REG`` may override defaults
     derived from ``SENSOR_TYPES``. ``SENSOR<N>_CONVERSION`` controls how raw
     register values are converted into human readable units and accepts either
@@ -90,6 +91,9 @@ def load_sensor_configs() -> dict[str, dict[int, SensorConfig]]:
         except ValueError:
             logging.warning("Invalid unit id %s=%s", unit_key, os.getenv(unit_key))
             continue
+
+        devid_key = f"{sensor_prefix}_DEVID"
+        device_id = os.getenv(devid_key, sensor_prefix)
 
         type_key = f"{sensor_prefix}_TYPE"
         sensor_type = os.getenv(type_key, "SHT20").upper()
@@ -147,6 +151,7 @@ def load_sensor_configs() -> dict[str, dict[int, SensorConfig]]:
             temp_reg = defaults["temperature_register"]
 
         cfg = SensorConfig(
+            device_id=device_id,
             function_code=fc,
             scale=scale,
             humid_register=humid_reg,
@@ -207,6 +212,7 @@ def load_gateway_configs() -> list[GatewayConfig]:
 
         gateways.append(
             GatewayConfig(
+                name=gateway_name,
                 host=host,
                 port=port,
                 sensors=sensors,
@@ -305,7 +311,7 @@ async def read_pair(
 
 
 async def read_sensor(
-    client: ModbusBaseClient, address: int, cfg: SensorConfig
+    client: ModbusBaseClient, address: int, cfg: SensorConfig, channel: str
 ) -> None:
     """Read and log humidity and temperature for a sensor."""
     if not client.connected:
@@ -335,12 +341,16 @@ async def read_sensor(
         temperature_raw = _apply_scale(temperature_raw, cfg.scale)
         humidity = -6 + 125 * humidity_raw / 65536.0
         temperature = -46.85 + 175.72 * temperature_raw / 65536.0
+    debug_info = [cfg.device_id, channel]
     logging.info(
-        "address=%s timestamp=%s humidity=%.2f%% temperature=%.2f°C",
+        "address=%s device=%s channel=%s timestamp=%s humidity=%.2f%% temperature=%.2f°C debug=%s",
         address,
+        cfg.device_id,
+        channel,
         datetime.utcnow().isoformat(),
         humidity,
         temperature,
+        debug_info,
     )
 
 
@@ -369,7 +379,7 @@ async def poll_loop(interval: float) -> None:
                             )
                         else:
                             for address, cfg in gateway.sensors.items():
-                                await read_sensor(client, address, cfg)
+                                await read_sensor(client, address, cfg, gateway.name)
                 else:
                     async with AsyncModbusTcpClient(
                         gateway.host, port=gateway.port
@@ -382,7 +392,7 @@ async def poll_loop(interval: float) -> None:
                             )
                         else:
                             for address, cfg in gateway.sensors.items():
-                                await read_sensor(client, address, cfg)
+                                await read_sensor(client, address, cfg, gateway.name)
             except Exception as exc:  # pragma: no cover - network failure
                 logging.error(
                     "Connection error %s:%s %s", gateway.host, gateway.port, exc
