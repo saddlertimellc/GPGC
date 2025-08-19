@@ -45,6 +45,12 @@ Temperatures are logged and published in Celsius by default. Set
 
     DEGREES_F=1
 
+## Debug logging
+
+Enable verbose output by passing the ``--debug`` flag::
+
+    python backend/poller.py --debug
+
 ## Example
 
 ```bash

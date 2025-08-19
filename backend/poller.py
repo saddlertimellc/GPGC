@@ -443,12 +443,19 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_INTERVAL,
         help="Polling interval in seconds (default: %(default)s)",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+    logging.basicConfig(
+        level=logging.DEBUG if args.debug else logging.INFO, stream=sys.stdout
+    )
     try:
         asyncio.run(poll_loop(args.interval))
     except KeyboardInterrupt:
