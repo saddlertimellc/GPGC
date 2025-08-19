@@ -6,7 +6,9 @@ from smbus2 import SMBus
 def main() -> None:
     """Poll BME688 sensor and log readings every second."""
     try:
-        sensor = bme680.BME680(i2c_addr=bme680.I2C_ADDR_PRIMARY, i2c_device=SMBus(0))
+        sensor = bme680.BME680(
+            i2c_addr=bme680.I2C_ADDR_SECONDARY, i2c_device=SMBus(2)
+        )
     except FileNotFoundError as exc:
         raise RuntimeError("I2C device not found. Adjust bus number if necessary.") from exc
 
@@ -21,8 +23,9 @@ def main() -> None:
         while True:
             if sensor.get_sensor_data():
                 data = sensor.data
+                temp_f = data.temperature * 9 / 5 + 32
                 print(
-                    f"Temperature: {data.temperature:.2f} °C, "
+                    f"Temperature: {temp_f:.2f} °F, "
                     f"Humidity: {data.humidity:.2f} %, "
                     f"Pressure: {data.pressure:.2f} hPa, "
                     f"Gas resistance: {data.gas_resistance:.2f} Ω"
