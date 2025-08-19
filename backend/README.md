@@ -45,6 +45,10 @@ Temperatures are logged and published in Celsius by default. Set
 
     DEGREES_F=1
 
+Firestore documents store the temperature under ``temp_c`` by default or
+``temp_f`` when ``DEGREES_F`` is enabled. Update Firestore queries to use the
+appropriate field for the chosen unit.
+
 ## Debug logging
 
 Enable verbose output by passing the ``--debug`` flag::

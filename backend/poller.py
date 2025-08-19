@@ -326,17 +326,18 @@ async def read_pair(
 
 
 async def publish_reading(
-    dev_id: str, channel: str, ts: str, temp_c: float, rh: float
+    dev_id: str, channel: str, ts: str, temperature: float, rh: float
 ) -> None:
     if firestore_client is None or not FIRESTORE_COLLECTION:
         return
+    field = "temp_f" if DEGREES_F else "temp_c"
     doc = (
         firestore_client.collection(FIRESTORE_COLLECTION)
         .document(dev_id)
         .collection("readings")
         .document(str(ts))
     )
-    await doc.set({"channel": channel, "temp_c": temp_c, "rh": rh})
+    await doc.set({"channel": channel, field: temperature, "rh": rh})
 
 
 async def read_sensor(
@@ -372,16 +373,18 @@ async def read_sensor(
         temp_unit = "°F"
     else:
         temp_unit = "°C"
+    temp_field = "temp_f" if DEGREES_F else "temp_c"
 
     debug_info = [cfg.device_id, channel]
     ts = datetime.utcnow().isoformat()
     logging.info(
-        "address=%s device=%s channel=%s timestamp=%s humidity=%.2f%% temperature=%.2f%s debug=%s",
+        "address=%s device=%s channel=%s timestamp=%s humidity=%.2f%% %s=%.2f%s debug=%s",
         address,
         cfg.device_id,
         channel,
         ts,
         humidity,
+        temp_field,
         temperature,
         temp_unit,
         debug_info,
