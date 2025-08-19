@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-"""Simple SPI display test script with optional touch input."""
+"""Simple SPI display test script with optional touch input.
+
+Designed for the Waveshare 2.8" 320×240 resistive touch LCD:
+https://www.waveshare.com/2.8inch-resistive-touch-lcd.htm
+"""
 
 from __future__ import annotations
 
+import os
 import select
 import time
 
@@ -20,23 +25,33 @@ SPI_DEVICE = 0
 SPI_SPEED_HZ = 40_000_000
 
 
-def init_display() -> "st7789.ST7789":
+def init_display() -> "st7789.ST7789 | None":
     """Initialise and return the display object."""
+    if os.getenv("GPGC_SKIP_DISPLAY"):
+        print("GPGC_SKIP_DISPLAY set; skipping display initialisation")
+        return None
+
     spi = spidev.SpiDev()
     spi.open(SPI_BUS, SPI_DEVICE)
     spi.max_speed_hz = SPI_SPEED_HZ
 
-    display = st7789.ST7789(
-        width=240,
-        height=240,
-        rotation=90,
-        port=SPI_BUS,
-        cs=SPI_DEVICE,
-        dc=24,
-        backlight=25,
-        rst=23,
-        spi_speed_hz=SPI_SPEED_HZ,
-    )
+    try:
+        display = st7789.ST7789(
+            width=240,
+            height=320,
+            rotation=90,
+            port=SPI_BUS,
+            cs=SPI_DEVICE,
+            dc=24,
+            backlight=25,
+            rst=23,
+            spi_speed_hz=SPI_SPEED_HZ,
+        )
+    except RuntimeError:
+        print(
+            "No GPIO platform detected; skipping display and touch tests",
+        )
+        return None
     return display
 
 
@@ -81,6 +96,8 @@ def poll_touch_events(device: str = "/dev/input/event0") -> None:
 
 def main() -> None:
     display = init_display()
+    if display is None:
+        return
     draw_test_pattern(display)
     poll_touch_events()
 
