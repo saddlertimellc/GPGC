@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import argparse
 import os
+import select
+import signal
+import sys
 import time
 
 from PIL import Image, ImageDraw, ImageFont
@@ -135,14 +138,19 @@ def init_touch() -> gpiod.LineRequest | None:
 
 def poll_touch_events(tp_irq: gpiod.LineRequest | None) -> None:
     """Poll the touch controller IRQ line for events."""
-    if tp_irq is None:
-        return
-
-    print("Polling touch events (press Ctrl+C to exit)")
+    print("Polling touch events (press 'q' or Ctrl+C to exit)")
     while True:
-        events = tp_irq.read_edge_events()
-        for _ in events:
-            print("Touch event detected")
+        if tp_irq is not None:
+            events = tp_irq.read_edge_events()
+            for _ in events:
+                print("Touch event detected")
+
+        # Allow the user to quit by pressing 'q'.
+        if select.select([sys.stdin], [], [], 0.01)[0]:
+            char = sys.stdin.read(1)
+            if char.lower() == "q":
+                break
+
         time.sleep(0.01)
 
 
@@ -160,10 +168,23 @@ def main() -> None:
     display = init_display(args.rotation)
     if display is None:
         return
-    draw_test_pattern(display)
 
-    tp_irq = init_touch()
-    poll_touch_events(tp_irq)
+    def handle_sigint(signum, frame):
+        raise KeyboardInterrupt()
+
+    signal.signal(signal.SIGINT, handle_sigint)
+
+    try:
+        draw_test_pattern(display)
+        tp_irq = init_touch()
+        poll_touch_events(tp_irq)
+    except KeyboardInterrupt:
+        print("Exiting")
+    finally:
+        try:
+            display.set_backlight(False)
+        finally:
+            display._spi.close()
 
 
 if __name__ == "__main__":
