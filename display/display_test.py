@@ -23,15 +23,16 @@ SPI_BUS = 0
 SPI_DEVICE = 0
 SPI_SPEED_HZ = 40_000_000
 
-# LCD control pins
-LCD_CS = 48
-LCD_DC = 71
-LCD_RST = 59
-LCD_BL = 70
+# LCD control pins defined as (chip path, line offset)
+# Original global numbers: CS=48, DC=71, RST=59, BL=70
+LCD_CS = ("/dev/gpiochip1", 16)
+LCD_DC = ("/dev/gpiochip2", 7)
+LCD_RST = ("/dev/gpiochip1", 27)
+LCD_BL = ("/dev/gpiochip2", 6)
 
-# Optional touch controller pins
-TP_CS = 42
-TP_IRQ = 43
+# Optional touch controller pins (global numbers: CS=42, IRQ=43)
+TP_CS = ("/dev/gpiochip1", 10)
+TP_IRQ = ("/dev/gpiochip1", 11)
 
 DEFAULT_WIDTH = 240
 DEFAULT_HEIGHT = 320
@@ -49,42 +50,33 @@ def init_display(rotation: int) -> "st7789.ST7789 | None":
     spi.max_speed_hz = SPI_SPEED_HZ
 
     try:
-        chip = gpiod.Chip("/dev/gpiochip0")
+        chips: dict[str, gpiod.Chip] = {}
 
-        cs_req = chip.request_lines(
-            consumer="display-test-cs",
-            config={
-                LCD_CS: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT),
-            },
-        )
-        dc_req = chip.request_lines(
-            consumer="display-test-dc",
-            config={
-                LCD_DC: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT),
-            },
-        )
-        rst_req = chip.request_lines(
-            consumer="display-test-rst",
-            config={
-                LCD_RST: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT),
-            },
-        )
-        bl_req = chip.request_lines(
-            consumer="display-test-bl",
-            config={
-                LCD_BL: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT),
-            },
-        )
+        def request_output(line: tuple[str, int], consumer: str) -> tuple[gpiod.LineRequest, int]:
+            chip = chips.setdefault(line[0], gpiod.Chip(line[0]))
+            offset = line[1]
+            req = chip.request_lines(
+                consumer=consumer,
+                config={
+                    offset: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT),
+                },
+            )
+            return req, offset
+
+        cs_req, cs_line = request_output(LCD_CS, "display-test-cs")
+        dc_req, dc_line = request_output(LCD_DC, "display-test-dc")
+        rst_req, rst_line = request_output(LCD_RST, "display-test-rst")
+        bl_req, bl_line = request_output(LCD_BL, "display-test-bl")
 
         display = st7789.ST7789(
             width=DEFAULT_WIDTH,
             height=DEFAULT_HEIGHT,
             rotation=rotation,
             port=SPI_BUS,
-            cs=(cs_req, LCD_CS),
-            dc=(dc_req, LCD_DC),
-            backlight=(bl_req, LCD_BL),
-            rst=(rst_req, LCD_RST),
+            cs=(cs_req, cs_line),
+            dc=(dc_req, dc_line),
+            backlight=(bl_req, bl_line),
+            rst=(rst_req, rst_line),
             spi_speed_hz=SPI_SPEED_HZ,
         )
     except RuntimeError:
@@ -116,21 +108,24 @@ def draw_test_pattern(display: "st7789.ST7789") -> None:
 def init_touch() -> gpiod.LineRequest | None:
     """Initialise touch controller SPI device and IRQ line."""
     try:
-        chip = gpiod.Chip("/dev/gpiochip0")
-        _tp_cs_req = chip.request_lines(
-            consumer="display-test-tp-cs",
-            config={
-                TP_CS: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT),
-            },
+        chips: dict[str, gpiod.Chip] = {}
+
+        def request_line(line: tuple[str, int], consumer: str, settings: gpiod.LineSettings) -> gpiod.LineRequest:
+            chip = chips.setdefault(line[0], gpiod.Chip(line[0]))
+            return chip.request_lines(consumer=consumer, config={line[1]: settings})
+
+        _tp_cs_req = request_line(
+            TP_CS,
+            "display-test-tp-cs",
+            gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT),
         )
-        tp_irq_req = chip.request_lines(
-            consumer="display-test-tp-irq",
-            config={
-                TP_IRQ: gpiod.LineSettings(
-                    direction=gpiod.line.Direction.INPUT,
-                    edge_detection=gpiod.line.Edge.FALLING,
-                ),
-            },
+        tp_irq_req = request_line(
+            TP_IRQ,
+            "display-test-tp-irq",
+            gpiod.LineSettings(
+                direction=gpiod.line.Direction.INPUT,
+                edge_detection=gpiod.line.Edge.FALLING,
+            ),
         )
 
         _tp_spi = spidev.SpiDev()
