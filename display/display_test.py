@@ -24,8 +24,8 @@ SPI_DEVICE = 0
 SPI_SPEED_HZ = 40_000_000
 
 # LCD control pins defined as (chip path, line offset)
-# Original global numbers: CS=48, DC=71, RST=59, BL=70
-LCD_CS = ("/dev/gpiochip1", 16)
+# SPI chip-select is handled by the hardware controller (device 0)
+# Original global numbers: DC=71, RST=59, BL=70
 LCD_DC = ("/dev/gpiochip2", 7)
 LCD_RST = ("/dev/gpiochip1", 27)
 LCD_BL = ("/dev/gpiochip2", 6)
@@ -45,10 +45,6 @@ def init_display(rotation: int) -> "st7789.ST7789 | None":
         print("GPGC_SKIP_DISPLAY set; skipping display initialisation")
         return None
 
-    spi = spidev.SpiDev()
-    spi.open(SPI_BUS, SPI_DEVICE)
-    spi.max_speed_hz = SPI_SPEED_HZ
-
     try:
         chips: dict[str, gpiod.Chip] = {}
 
@@ -63,7 +59,6 @@ def init_display(rotation: int) -> "st7789.ST7789 | None":
             )
             return req, offset
 
-        cs_req, cs_line = request_output(LCD_CS, "display-test-cs")
         dc_req, dc_line = request_output(LCD_DC, "display-test-dc")
         rst_req, rst_line = request_output(LCD_RST, "display-test-rst")
         bl_req, bl_line = request_output(LCD_BL, "display-test-bl")
@@ -73,7 +68,7 @@ def init_display(rotation: int) -> "st7789.ST7789 | None":
             height=DEFAULT_HEIGHT,
             rotation=rotation,
             port=SPI_BUS,
-            cs=(cs_req, cs_line),
+            cs=SPI_DEVICE,
             dc=(dc_req, dc_line),
             backlight=(bl_req, bl_line),
             rst=(rst_req, rst_line),
