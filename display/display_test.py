@@ -26,9 +26,13 @@ DEFAULT_WIDTH = 240
 DEFAULT_HEIGHT = 320
 DEFAULT_ROTATION = 180
 
-DC_PIN = 24
-RST_PIN = 23
-BACKLIGHT_PIN = 25
+# Luckfox Pico Ultra GPIO offsets mapping:
+# - GPIO2_A7_d (DC)
+# - GPIO1_D3_d (Reset)
+# - GPIO2_A6_d (Backlight)
+DC_PIN = 71  # GPIO2_A7_d
+RST_PIN = 59  # GPIO1_D3_d
+BACKLIGHT_PIN = 70  # GPIO2_A6_d
 
 
 def init_display(width: int, height: int, rotation: int) -> "st7789.ST7789 | None":
