@@ -25,6 +25,10 @@ SPI_BUS = 0
 SPI_DEVICE = 0
 SPI_SPEED_HZ = 40_000_000
 
+DEFAULT_WIDTH = 240
+DEFAULT_HEIGHT = 320
+DEFAULT_ROTATION = 180
+
 
 def init_display(width: int, height: int, rotation: int) -> "st7789.ST7789 | None":
     """Initialise and return the display object."""
@@ -35,14 +39,6 @@ def init_display(width: int, height: int, rotation: int) -> "st7789.ST7789 | Non
     spi = spidev.SpiDev()
     spi.open(SPI_BUS, SPI_DEVICE)
     spi.max_speed_hz = SPI_SPEED_HZ
-    if width != height and rotation == 90:
-        print(
-            "Rotation 90 is not supported for rectangular displays; use 0, 180, or 270",
-        )
-        return None
-
-    if width != height and rotation == 270:
-        width, height = height, width
 
     try:
         display = st7789.ST7789(
@@ -105,14 +101,14 @@ def poll_touch_events(device: str = "/dev/input/event0") -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--width", type=int, default=240, help="Display width in pixels")
-    parser.add_argument("--height", type=int, default=320, help="Display height in pixels")
+    parser.add_argument("--width", type=int, default=DEFAULT_WIDTH, help="Display width in pixels")
+    parser.add_argument("--height", type=int, default=DEFAULT_HEIGHT, help="Display height in pixels")
     parser.add_argument(
         "--rotation",
         type=int,
-        default=270,
-        choices=[0, 90, 180, 270],
-        help="Display rotation (0, 90, 180 or 270)",
+        default=DEFAULT_ROTATION,
+        choices=[0, 180],
+        help="Display rotation (0 or 180)",
     )
     args = parser.parse_args()
 
