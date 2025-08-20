@@ -7,6 +7,7 @@ https://www.waveshare.com/2.8inch-resistive-touch-lcd.htm
 
 from __future__ import annotations
 
+import argparse
 import os
 import select
 import time
@@ -25,7 +26,7 @@ SPI_DEVICE = 0
 SPI_SPEED_HZ = 40_000_000
 
 
-def init_display() -> "st7789.ST7789 | None":
+def init_display(width: int, height: int, rotation: int) -> "st7789.ST7789 | None":
     """Initialise and return the display object."""
     if os.getenv("GPGC_SKIP_DISPLAY"):
         print("GPGC_SKIP_DISPLAY set; skipping display initialisation")
@@ -34,12 +35,20 @@ def init_display() -> "st7789.ST7789 | None":
     spi = spidev.SpiDev()
     spi.open(SPI_BUS, SPI_DEVICE)
     spi.max_speed_hz = SPI_SPEED_HZ
+    if width != height and rotation == 90:
+        print(
+            "Rotation 90 is not supported for rectangular displays; use 0, 180, or 270",
+        )
+        return None
+
+    if width != height and rotation == 270:
+        width, height = height, width
 
     try:
         display = st7789.ST7789(
-            width=240,
-            height=320,
-            rotation=90,
+            width=width,
+            height=height,
+            rotation=rotation,
             port=SPI_BUS,
             cs=SPI_DEVICE,
             dc=24,
@@ -95,7 +104,19 @@ def poll_touch_events(device: str = "/dev/input/event0") -> None:
 
 
 def main() -> None:
-    display = init_display()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--width", type=int, default=240, help="Display width in pixels")
+    parser.add_argument("--height", type=int, default=320, help="Display height in pixels")
+    parser.add_argument(
+        "--rotation",
+        type=int,
+        default=270,
+        choices=[0, 90, 180, 270],
+        help="Display rotation (0, 90, 180 or 270)",
+    )
+    args = parser.parse_args()
+
+    display = init_display(args.width, args.height, args.rotation)
     if display is None:
         return
     draw_test_pattern(display)
