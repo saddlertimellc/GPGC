@@ -13,6 +13,7 @@ import select
 import time
 
 from PIL import Image, ImageDraw, ImageFont
+import gpiod
 import spidev
 
 try:
@@ -29,6 +30,10 @@ DEFAULT_WIDTH = 240
 DEFAULT_HEIGHT = 320
 DEFAULT_ROTATION = 180
 
+DC_PIN = 24
+RST_PIN = 23
+BACKLIGHT_PIN = 25
+
 
 def init_display(width: int, height: int, rotation: int) -> "st7789.ST7789 | None":
     """Initialise and return the display object."""
@@ -41,21 +46,45 @@ def init_display(width: int, height: int, rotation: int) -> "st7789.ST7789 | Non
     spi.max_speed_hz = SPI_SPEED_HZ
 
     try:
+        chip = gpiod.Chip("/dev/gpiochip0")
+
+        dc_req = chip.request_lines(
+            consumer="display-test-dc",
+            config={
+                DC_PIN: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT),
+            },
+        )
+        rst_req = chip.request_lines(
+            consumer="display-test-rst",
+            config={
+                RST_PIN: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT),
+            },
+        )
+        bl_req = chip.request_lines(
+            consumer="display-test-bl",
+            config={
+                BACKLIGHT_PIN: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT),
+            },
+        )
+
         display = st7789.ST7789(
             width=width,
             height=height,
             rotation=rotation,
             port=SPI_BUS,
             cs=SPI_DEVICE,
-            dc=24,
-            backlight=25,
-            rst=23,
+            dc=(dc_req, DC_PIN),
+            backlight=(bl_req, BACKLIGHT_PIN),
+            rst=(rst_req, RST_PIN),
             spi_speed_hz=SPI_SPEED_HZ,
         )
     except RuntimeError:
         print(
             "No GPIO platform detected; skipping display and touch tests",
         )
+        return None
+    except OSError:
+        print("GPIO chip not found; skipping display and touch tests")
         return None
     return display
 

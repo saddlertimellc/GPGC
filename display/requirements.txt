@@ -3,3 +3,4 @@ adafruit-circuitpython-ili9341
 spidev
 evdev
 pillow
+gpiod
