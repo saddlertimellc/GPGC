@@ -1,5 +1,4 @@
 st7789
-adafruit-circuitpython-ili9341
 spidev
 evdev
 pillow

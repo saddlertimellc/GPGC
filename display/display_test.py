@@ -15,11 +15,7 @@ import time
 from PIL import Image, ImageDraw, ImageFont
 import gpiod
 import spidev
-
-try:
-    import st7789
-except ImportError:  # pragma: no cover - fallback for different panels
-    from adafruit_ili9341 import ILI9341 as st7789  # type: ignore
+import st7789
 
 
 SPI_BUS = 0
