@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import select
 import time
 
 from PIL import Image, ImageDraw, ImageFont
@@ -18,23 +17,28 @@ import spidev
 import st7789
 
 
-# Hardware configuration for the Luckfox Pico Ultra display.
+# Pin mappings for the Luckfox Pico Ultra board.
 # Adjust these constants if you wire the screen differently.
-SPI_BUS = 4  # SPI bus number (spidev4.*)
-SPI_DEVICE = 0  # Chip select on the bus
+SPI_BUS = 0
+SPI_DEVICE = 0
 SPI_SPEED_HZ = 40_000_000
+
+# LCD control pins
+LCD_CS = 48
+LCD_DC = 71
+LCD_RST = 59
+LCD_BL = 70
+
+# Optional touch controller pins
+TP_CS = 42
+TP_IRQ = 43
 
 DEFAULT_WIDTH = 240
 DEFAULT_HEIGHT = 320
-DEFAULT_ROTATION = 180
-
-# GPIO line offsets for control pins
-DC_PIN = 71  # GPIO2_A7_d: data/command
-RST_PIN = 59  # GPIO1_D3_d: reset
-BACKLIGHT_PIN = 70  # GPIO2_A6_d: backlight
+DEFAULT_ROTATION = 0
 
 
-def init_display(width: int, height: int, rotation: int) -> "st7789.ST7789 | None":
+def init_display(rotation: int) -> "st7789.ST7789 | None":
     """Initialise and return the display object."""
     if os.getenv("GPGC_SKIP_DISPLAY"):
         print("GPGC_SKIP_DISPLAY set; skipping display initialisation")
@@ -47,34 +51,40 @@ def init_display(width: int, height: int, rotation: int) -> "st7789.ST7789 | Non
     try:
         chip = gpiod.Chip("/dev/gpiochip0")
 
+        cs_req = chip.request_lines(
+            consumer="display-test-cs",
+            config={
+                LCD_CS: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT),
+            },
+        )
         dc_req = chip.request_lines(
             consumer="display-test-dc",
             config={
-                DC_PIN: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT),
+                LCD_DC: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT),
             },
         )
         rst_req = chip.request_lines(
             consumer="display-test-rst",
             config={
-                RST_PIN: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT),
+                LCD_RST: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT),
             },
         )
         bl_req = chip.request_lines(
             consumer="display-test-bl",
             config={
-                BACKLIGHT_PIN: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT),
+                LCD_BL: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT),
             },
         )
 
         display = st7789.ST7789(
-            width=width,
-            height=height,
+            width=DEFAULT_WIDTH,
+            height=DEFAULT_HEIGHT,
             rotation=rotation,
             port=SPI_BUS,
-            cs=SPI_DEVICE,
-            dc=(dc_req, DC_PIN),
-            backlight=(bl_req, BACKLIGHT_PIN),
-            rst=(rst_req, RST_PIN),
+            cs=(cs_req, LCD_CS),
+            dc=(dc_req, LCD_DC),
+            backlight=(bl_req, LCD_BL),
+            rst=(rst_req, LCD_RST),
             spi_speed_hz=SPI_SPEED_HZ,
         )
     except RuntimeError:
@@ -103,48 +113,67 @@ def draw_test_pattern(display: "st7789.ST7789") -> None:
     display.display(image)
 
 
-def poll_touch_events(device: str = "/dev/input/event0") -> None:
-    """Poll touch input events from the given input device."""
+def init_touch() -> gpiod.LineRequest | None:
+    """Initialise touch controller SPI device and IRQ line."""
     try:
-        from evdev import InputDevice, ecodes
-    except ImportError:  # pragma: no cover
-        print("evdev library not installed; skipping touch input")
+        chip = gpiod.Chip("/dev/gpiochip0")
+        _tp_cs_req = chip.request_lines(
+            consumer="display-test-tp-cs",
+            config={
+                TP_CS: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT),
+            },
+        )
+        tp_irq_req = chip.request_lines(
+            consumer="display-test-tp-irq",
+            config={
+                TP_IRQ: gpiod.LineSettings(
+                    direction=gpiod.line.Direction.INPUT,
+                    edge_detection=gpiod.line.Edge.FALLING,
+                ),
+            },
+        )
+
+        _tp_spi = spidev.SpiDev()
+        _tp_spi.open(SPI_BUS, SPI_DEVICE)
+        _tp_spi.max_speed_hz = SPI_SPEED_HZ
+
+        return tp_irq_req
+    except Exception:
+        print("Touch controller not available; skipping touch initialisation")
+        return None
+
+
+def poll_touch_events(tp_irq: gpiod.LineRequest | None) -> None:
+    """Poll the touch controller IRQ line for events."""
+    if tp_irq is None:
         return
 
-    try:
-        dev = InputDevice(device)
-        print(f"Using input device: {dev.name}")
-    except FileNotFoundError:
-        print(f"Touch device {device} not found")
-        return
-
+    print("Polling touch events (press Ctrl+C to exit)")
     while True:
-        r, _, _ = select.select([dev], [], [], 0.1)
-        if dev in r:
-            for event in dev.read():
-                if event.type == ecodes.EV_ABS:
-                    print(f"Touch: code={event.code} value={event.value}")
+        events = tp_irq.read_edge_events()
+        for _ in events:
+            print("Touch event detected")
         time.sleep(0.01)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--width", type=int, default=DEFAULT_WIDTH, help="Display width in pixels")
-    parser.add_argument("--height", type=int, default=DEFAULT_HEIGHT, help="Display height in pixels")
     parser.add_argument(
         "--rotation",
         type=int,
         default=DEFAULT_ROTATION,
-        choices=[0, 180],
-        help="Display rotation (0 or 180)",
+        choices=[0, 180, 270],
+        help="Display rotation (0, 180 or 270)",
     )
     args = parser.parse_args()
 
-    display = init_display(args.width, args.height, args.rotation)
+    display = init_display(args.rotation)
     if display is None:
         return
     draw_test_pattern(display)
-    poll_touch_events()
+
+    tp_irq = init_touch()
+    poll_touch_events(tp_irq)
 
 
 if __name__ == "__main__":
