@@ -1,191 +1,203 @@
 #!/usr/bin/env python3
-"""Simple SPI display test script with optional touch input.
+"""Simple display and touch panel test for the Luckfox Pico Ultra.
 
-Designed for the Waveshare 2.8" 320×240 resistive touch LCD:
-https://www.waveshare.com/2.8inch-resistive-touch-lcd.htm
+This script assumes a Waveshare 2.8" 320x240 resistive touch LCD wired to
+the board using the default pinout.  It draws a basic colour pattern on the
+screen and then reports touch coordinates until interrupted.
+
+The code deliberately avoids any platform detection and is intended to be run
+directly on the target hardware.
 """
 
 from __future__ import annotations
 
-import argparse
-import os
-import select
 import signal
-import sys
 import time
+from dataclasses import dataclass
 
-from PIL import Image, ImageDraw, ImageFont
 import gpiod
 import spidev
+from PIL import Image, ImageDraw, ImageFont
 import st7789
 
+# ---------------------------------------------------------------------------
+# Hardware configuration
+# ---------------------------------------------------------------------------
 
-# Pin mappings for the Luckfox Pico Ultra board.
-# Adjust these constants if you wire the screen differently.
 SPI_BUS = 0
 SPI_DEVICE = 0
 SPI_SPEED_HZ = 40_000_000
 
-# LCD control pins defined as (chip path, line offset)
-# SPI chip-select is handled by the hardware controller (device 0)
-# Original global numbers: DC=71, RST=59, BL=70
+# LCD control pins (chip path, line offset)
 LCD_DC = ("/dev/gpiochip2", 7)
 LCD_RST = ("/dev/gpiochip1", 27)
 LCD_BL = ("/dev/gpiochip2", 6)
 
-# Optional touch controller pins (global numbers: CS=42, IRQ=43)
+# Touch controller pins
 TP_CS = ("/dev/gpiochip1", 10)
 TP_IRQ = ("/dev/gpiochip1", 11)
 
-DEFAULT_WIDTH = 240
-DEFAULT_HEIGHT = 320
-DEFAULT_ROTATION = 0
+WIDTH = 240
+HEIGHT = 320
 
 
-def init_display(rotation: int) -> "st7789.ST7789 | None":
-    """Initialise and return the display object."""
-    if os.getenv("GPGC_SKIP_DISPLAY"):
-        print("GPGC_SKIP_DISPLAY set; skipping display initialisation")
-        return None
+# ---------------------------------------------------------------------------
+# GPIO helpers
+# ---------------------------------------------------------------------------
 
-    try:
-        chips: dict[str, gpiod.Chip] = {}
+@dataclass
+class GPIOPin:
+    request: gpiod.LineRequest
+    offset: int
 
-        def request_output(line: tuple[str, int], consumer: str) -> tuple[gpiod.LineRequest, int]:
-            chip = chips.setdefault(line[0], gpiod.Chip(line[0]))
-            offset = line[1]
-            req = chip.request_lines(
-                consumer=consumer,
-                config={
-                    offset: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT),
-                },
+
+def request_output(pin: tuple[str, int], name: str) -> GPIOPin:
+    """Request a GPIO line configured as an output."""
+
+    chip = gpiod.Chip(pin[0])
+    req = chip.request_lines(
+        consumer=name,
+        config={pin[1]: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT)},
+    )
+    return GPIOPin(req, pin[1])
+
+
+def request_input(pin: tuple[str, int], name: str) -> GPIOPin:
+    """Request a GPIO line configured as an input with falling-edge detection."""
+
+    chip = gpiod.Chip(pin[0])
+    req = chip.request_lines(
+        consumer=name,
+        config={
+            pin[1]: gpiod.LineSettings(
+                direction=gpiod.line.Direction.INPUT,
+                edge_detection=gpiod.line.Edge.FALLING,
             )
-            return req, offset
+        },
+    )
+    return GPIOPin(req, pin[1])
 
-        dc_req, dc_line = request_output(LCD_DC, "display-test-dc")
-        rst_req, rst_line = request_output(LCD_RST, "display-test-rst")
-        bl_req, bl_line = request_output(LCD_BL, "display-test-bl")
 
-        display = st7789.ST7789(
-            width=DEFAULT_WIDTH,
-            height=DEFAULT_HEIGHT,
-            rotation=rotation,
-            port=SPI_BUS,
-            cs=SPI_DEVICE,
-            dc=(dc_req, dc_line),
-            backlight=(bl_req, bl_line),
-            rst=(rst_req, rst_line),
-            spi_speed_hz=SPI_SPEED_HZ,
-        )
-    except RuntimeError:
-        print(
-            "No GPIO platform detected; skipping display and touch tests",
-        )
-        return None
-    except OSError:
-        print("GPIO chip not found; skipping display and touch tests")
-        return None
+# ---------------------------------------------------------------------------
+# Display handling
+# ---------------------------------------------------------------------------
+
+
+def init_display(rotation: int = 0) -> st7789.ST7789:
+    """Initialise the ST7789 display and return the driver object."""
+
+    dc = request_output(LCD_DC, "disp-dc")
+    rst = request_output(LCD_RST, "disp-rst")
+    bl = request_output(LCD_BL, "disp-bl")
+
+    display = st7789.ST7789(
+        width=WIDTH,
+        height=HEIGHT,
+        rotation=rotation,
+        port=SPI_BUS,
+        cs=SPI_DEVICE,
+        dc=(dc.request, dc.offset),
+        rst=(rst.request, rst.offset),
+        backlight=(bl.request, bl.offset),
+        spi_speed_hz=SPI_SPEED_HZ,
+    )
     return display
 
 
-def draw_test_pattern(display: "st7789.ST7789") -> None:
-    """Draw a simple test pattern on the display."""
-    image = Image.new("RGB", (display.width, display.height), color=(0, 0, 0))
-    draw = ImageDraw.Draw(image)
+def draw_pattern(display: st7789.ST7789) -> None:
+    """Display a simple series of colour bars with some text."""
 
-    draw.rectangle((0, 0, display.width, display.height), fill=(0, 0, 255))
-    draw.line((0, 0, display.width, display.height), fill=(255, 0, 0))
-    draw.line((0, display.height, display.width, 0), fill=(0, 255, 0))
+    img = Image.new("RGB", (WIDTH, HEIGHT))
+    draw = ImageDraw.Draw(img)
+
+    colours = [
+        (255, 0, 0),
+        (0, 255, 0),
+        (0, 0, 255),
+        (255, 255, 0),
+        (0, 255, 255),
+    ]
+    bar_h = HEIGHT // len(colours)
+    for i, colour in enumerate(colours):
+        draw.rectangle((0, i * bar_h, WIDTH, (i + 1) * bar_h), fill=colour)
 
     font = ImageFont.load_default()
-    draw.text((10, 10), "Hello, GPGC!", fill=(255, 255, 255), font=font)
+    draw.text((10, 10), "Touch the screen", fill=(0, 0, 0), font=font)
 
-    display.display(image)
-
-
-def init_touch() -> gpiod.LineRequest | None:
-    """Initialise touch controller SPI device and IRQ line."""
-    try:
-        chips: dict[str, gpiod.Chip] = {}
-
-        def request_line(line: tuple[str, int], consumer: str, settings: gpiod.LineSettings) -> gpiod.LineRequest:
-            chip = chips.setdefault(line[0], gpiod.Chip(line[0]))
-            return chip.request_lines(consumer=consumer, config={line[1]: settings})
-
-        _tp_cs_req = request_line(
-            TP_CS,
-            "display-test-tp-cs",
-            gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT),
-        )
-        tp_irq_req = request_line(
-            TP_IRQ,
-            "display-test-tp-irq",
-            gpiod.LineSettings(
-                direction=gpiod.line.Direction.INPUT,
-                edge_detection=gpiod.line.Edge.FALLING,
-            ),
-        )
-
-        _tp_spi = spidev.SpiDev()
-        _tp_spi.open(SPI_BUS, SPI_DEVICE)
-        _tp_spi.max_speed_hz = SPI_SPEED_HZ
-
-        return tp_irq_req
-    except Exception:
-        print("Touch controller not available; skipping touch initialisation")
-        return None
+    display.display(img)
 
 
-def poll_touch_events(tp_irq: gpiod.LineRequest | None) -> None:
-    """Poll the touch controller IRQ line for events."""
-    print("Polling touch events (press 'q' or Ctrl+C to exit)")
-    while True:
-        if tp_irq is not None:
-            events = tp_irq.read_edge_events()
-            for _ in events:
-                print("Touch event detected")
+# ---------------------------------------------------------------------------
+# Touch handling
+# ---------------------------------------------------------------------------
 
-        # Allow the user to quit by pressing 'q'.
-        if select.select([sys.stdin], [], [], 0.01)[0]:
-            char = sys.stdin.read(1)
-            if char.lower() == "q":
-                break
 
-        time.sleep(0.01)
+class TouchPanel:
+    """Minimal XPT2046 touch panel reader."""
+
+    def __init__(self) -> None:
+        self.cs = request_output(TP_CS, "tp-cs")
+        self.irq = request_input(TP_IRQ, "tp-irq")
+
+        self.spi = spidev.SpiDev()
+        self.spi.open(SPI_BUS, SPI_DEVICE)
+        self.spi.max_speed_hz = 2_000_000
+
+    def _read_channel(self, command: int) -> int:
+        """Read a 12-bit value from the touch controller."""
+
+        resp = self.spi.xfer2([command, 0x00, 0x00])
+        return ((resp[1] << 8) | resp[2]) >> 4
+
+    def read(self) -> tuple[int, int] | None:
+        """Return (x, y) when the panel is pressed, otherwise ``None``."""
+
+        if self.irq.request.get_value(self.irq.offset):
+            return None
+
+        self.cs.request.set_value(self.cs.offset, 0)
+        x = self._read_channel(0xD0)  # X position
+        y = self._read_channel(0x90)  # Y position
+        self.cs.request.set_value(self.cs.offset, 1)
+        return x, y
+
+    def close(self) -> None:
+        self.spi.close()
+
+
+# ---------------------------------------------------------------------------
+# Main program
+# ---------------------------------------------------------------------------
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--rotation",
-        type=int,
-        default=DEFAULT_ROTATION,
-        choices=[0, 180, 270],
-        help="Display rotation (0, 180 or 270)",
-    )
-    args = parser.parse_args()
+    display = init_display()
+    draw_pattern(display)
+    touch = TouchPanel()
 
-    display = init_display(args.rotation)
-    if display is None:
-        return
-
-    def handle_sigint(signum, frame):
-        raise KeyboardInterrupt()
+    def handle_sigint(signum, frame):  # type: ignore[override]
+        raise KeyboardInterrupt
 
     signal.signal(signal.SIGINT, handle_sigint)
 
+    print("Touch the panel to see coordinates (Ctrl+C to exit)")
     try:
-        draw_test_pattern(display)
-        tp_irq = init_touch()
-        poll_touch_events(tp_irq)
+        while True:
+            pos = touch.read()
+            if pos is not None:
+                # Convert raw 12-bit coordinates to screen space
+                x = WIDTH - pos[0] * WIDTH // 4095
+                y = pos[1] * HEIGHT // 4095
+                print(f"Touch at x={x:3d}, y={y:3d}")
+                time.sleep(0.2)
     except KeyboardInterrupt:
-        print("Exiting")
+        pass
     finally:
-        try:
-            display.set_backlight(False)
-        finally:
-            display._spi.close()
+        touch.close()
+        display.set_backlight(False)
+        display._spi.close()
 
 
 if __name__ == "__main__":
     main()
+
